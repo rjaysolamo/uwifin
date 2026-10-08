@@ -8,7 +8,7 @@ pub fn validate_wallet_address(address: &str) -> Result<String, ApiError> {
     }
     Ok(address.to_ascii_lowercase())
 }
-pub fn validate_network(network: &str) -> Result<(), ApiError> {
-    if network != NETWORK { return Err(ApiError::new("UNSUPPORTED_NETWORK", "Only Base Sepolia is supported by this development API.")); }
+pub fn validate_network(network: &str, configured: &str) -> Result<(), ApiError> {
+    if network != configured { return Err(ApiError::new("UNSUPPORTED_NETWORK", "Use the network configured for this wallet.")); }
     Ok(())
 }
