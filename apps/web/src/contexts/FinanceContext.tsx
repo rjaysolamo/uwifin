@@ -1,110 +1,92 @@
 'use client';
-
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
-import { DEMO_MODE, useAuth } from './AuthContext';
-import { request, type Wallet, type Balance } from '@/lib/api';
-import { DEMO_ADDRESS, initialTransfers, type Transfer } from '@/lib/demo';
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react';
+import { useAuth } from './AuthContext';
+import { request, type Wallet, type Balance, type Capabilities } from '@/lib/api';
+import type { Transfer } from '@/lib/transfers';
 import { parseAmount, validateAddress } from '@/lib/money';
+import { connectSmartWallet, signTransfer } from '@/lib/wallet';
 
 type FinanceState = {
-  balance: string; address: string; transfers: Transfer[]; loading: boolean; error: string;
-  send: (recipient: string, amount: string, name: string, key: string) => Promise<Transfer>;
-  refresh: () => Promise<void>; resetDemo: () => void;
+  balance: string; balanceKnown: boolean; address: string; wallets: Wallet[]; wallet: Wallet | null;
+  capabilities: Capabilities | null; networkLabel: string; transfers: Transfer[]; loading: boolean; error: string;
+  selectWallet: (id: string) => void; connect: () => Promise<void>;
+  send: (recipient: string, amount: string, key: string) => Promise<Transfer>;
+  refresh: () => Promise<void>;
 };
 const FinanceContext = createContext<FinanceState | null>(null);
 export function FinanceProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const [balance, setBalance] = useState(DEMO_MODE ? '1240520000' : '0');
-  const [address, setAddress] = useState(DEMO_MODE ? DEMO_ADDRESS : '');
-  const [transfers, setTransfers] = useState<Transfer[]>(DEMO_MODE ? initialTransfers : []);
-  const [loading, setLoading] = useState(!DEMO_MODE);
+  // Remount per identity so a previous user's state and async results cannot enter a new session.
+  return <AccountFinance key={user?.id || 'signed-out'} signedIn={!!user}>{children}</AccountFinance>;
+}
+function AccountFinance({ signedIn, children }: { signedIn: boolean; children: ReactNode }) {
+  const [balance, setBalance] = useState('0');
+  const [balanceKnown, setBalanceKnown] = useState(false);
+  const [wallets, setWallets] = useState<Wallet[]>([]);
+  const [selected, setSelected] = useState('');
+  const [capabilities, setCapabilities] = useState<Capabilities | null>(null);
+  const [transfers, setTransfers] = useState<Transfer[]>([]);
+  const [loading, setLoading] = useState(signedIn);
   const [error, setError] = useState('');
-  const mutationLock = useRef(false);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const persist = (nextBalance: string, nextTransfers: Transfer[]) => {
-    localStorage.setItem('uwifin-demo-finances-v1', JSON.stringify({ balance: nextBalance, transfers: nextTransfers }));
-  };
-  useEffect(() => {
-    if (!DEMO_MODE) return;
-    try {
-      const saved = JSON.parse(localStorage.getItem('uwifin-demo-finances-v1') || 'null');
-      if (saved && /^\d{1,19}$/.test(saved.balance) && Array.isArray(saved.transfers) && saved.transfers.length <= 500 && saved.transfers.every((item: Transfer) =>
-        typeof item.id === 'string' && typeof item.name === 'string' && typeof item.created_at === 'string' &&
-        /^\d{1,19}$/.test(item.amount_atomic) && validateAddress(item.address) &&
-        ['sent', 'received', 'bought'].includes(item.kind) && ['created', 'pending', 'confirmed', 'failed'].includes(item.status))) {
-        setBalance(saved.balance); setTransfers(saved.transfers);
-      }
-    } catch { localStorage.removeItem('uwifin-demo-finances-v1'); }
-    return () => timers.current.forEach(clearTimeout);
-  }, []);
-
-  const refresh = async () => {
-    if (DEMO_MODE || !user) return;
+  const lock = useRef(false);
+  const active = useRef(true);
+  const fetchController = useRef<AbortController | null>(null);
+  const wallet = wallets.find(item => item.id === selected) || wallets[0] || null;
+  useEffect(() => { active.current = true; return () => { active.current = false; fetchController.current?.abort(); }; }, []);
+  const refresh = useCallback(async () => {
+    if (!signedIn) return;
+    fetchController.current?.abort();
+    const controller = new AbortController(); fetchController.current = controller;
+    const options = { signal: controller.signal };
     setLoading(true); setError('');
     try {
-      const wallets = await request<Wallet[]>('/wallets');
-      const wallet = wallets.find((item) => item.network === 'base-sepolia');
-      if (wallet) {
-        setAddress(wallet.address);
-        const balances = await request<Balance[]>(`/wallets/${wallet.id}/balances`);
-        const usdc = balances.find((item) => item.asset === 'USDC');
-        setBalance(usdc && usdc.balance !== '0.000000' ? parseAmount(usdc.balance).toString() : '0');
-      }
-      const result = await request<{ transactions: Transfer[] }>('/transactions');
-      setTransfers(result.transactions);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Unable to load your wallet.'); }
-    finally { setLoading(false); }
-  };
+      const [config, records, history] = await Promise.all([
+        request<Capabilities>('/capabilities', options), request<Wallet[]>('/wallets', options),
+        request<{ transactions: Transfer[] }>('/transactions?limit=100', options),
+      ]);
+      if (controller.signal.aborted) return;
+      setCapabilities(config); setWallets(records); setTransfers(history.transactions);
+      const current = records.find(item => item.id === selected) || records[0];
+      if (!current) { setBalance('0'); setBalanceKnown(false); return; }
+      const balances = await request<Balance[]>(`/wallets/${current.id}/balances`, options);
+      const usdc = balances.find(item => item.asset === 'USDC');
+      if (!usdc || !/^\d+(\.\d{1,6})?$/.test(usdc.balance)) throw new Error('USDC balance is unavailable.');
+      const [whole, fraction = ''] = usdc.balance.split('.');
+      if (!controller.signal.aborted) { setBalance((BigInt(whole) * 1_000_000n + BigInt(fraction.padEnd(6, '0'))).toString()); setBalanceKnown(true); }
+    } catch (err) {
+      if (!controller.signal.aborted) { setBalanceKnown(false); setError(err instanceof Error ? err.message : 'Unable to load your wallet.'); }
+    } finally { if (!controller.signal.aborted) setLoading(false); }
+  }, [selected, signedIn]);
   useEffect(() => {
-    if (!DEMO_MODE) void refresh();
-    // Refresh on identity changes; manual refresh handles provider updates.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id]);
-
-  const send = async (recipient: string, amount: string, name: string, key: string): Promise<Transfer> => {
-    if (!validateAddress(recipient)) throw new Error('Enter a valid recipient wallet address.');
-    if (recipient.toLowerCase() === address.toLowerCase()) throw new Error('Choose a different wallet from your own.');
-    const atomic = parseAmount(amount);
-    const existing = transfers.find((item) => item.idempotency_key === key);
-    if (existing) return existing;
-    if (mutationLock.current) throw new Error('A transfer is already being processed.');
-    if (atomic > BigInt(balance)) throw new Error('You don’t have enough USDC for this transfer.');
-    mutationLock.current = true;
+    void refresh();
+    const timer = setInterval(() => { if (!document.hidden && !lock.current) void refresh(); }, 15_000);
+    return () => { clearInterval(timer); fetchController.current?.abort(); };
+  }, [refresh]);
+  const connect = async () => {
+    if (!capabilities || !signedIn) throw new Error('Sign in and wait for wallet services to load.');
+    if (lock.current) throw new Error('A wallet action is already in progress.');
+    lock.current = true;
+    try { const created = await connectSmartWallet(capabilities); if (active.current) { setWallets(current => [created, ...current.filter(item => item.id !== created.id)]); setSelected(created.id); } }
+    finally { lock.current = false; }
+  };
+  const send = async (recipient: string, amount: string, key: string): Promise<Transfer> => {
+    if (!wallet || !capabilities || !balanceKnown) throw new Error('Connect a wallet and refresh its balance before sending.');
+    if (!capabilities.sponsorship_enabled) throw new Error('Sponsored transfers are temporarily unavailable.');
+    if (!validateAddress(recipient) || recipient.toLowerCase() === wallet.address.toLowerCase()) throw new Error('Enter a valid recipient other than your own wallet.');
+    if (parseAmount(amount) > BigInt(balance)) throw new Error('Insufficient USDC balance.');
+    if (lock.current) throw new Error('A wallet action is already in progress.');
+    lock.current = true;
     try {
-      if (!DEMO_MODE) {
-        // Sending stays gated until user signing and receipt verification are configured.
-        throw new Error('Live transfers are not enabled yet. Connect the approved wallet signing provider first.');
-      }
-      const transfer: Transfer = {
-        id: `demo-${crypto.randomUUID()}`, kind: 'sent', name: name || 'Wallet transfer', address: recipient,
-        amount_atomic: atomic.toString(), status: 'pending', created_at: new Date().toISOString(), tx_hash: null, idempotency_key: key,
-      };
-      const nextBalance = (BigInt(balance) - atomic).toString();
-      const nextTransfers = [transfer, ...transfers];
-      persist(nextBalance, nextTransfers); setBalance(nextBalance); setTransfers(nextTransfers);
-      // Demonstrate asynchronous settlement only in explicit demo mode.
-      timers.current.push(setTimeout(() => {
-        setTransfers((current) => {
-          const settled = current.map((item) => item.id === transfer.id ? { ...item, status: 'confirmed' as const } : item);
-          const stored = JSON.parse(localStorage.getItem('uwifin-demo-finances-v1') || '{}');
-          persist(stored.balance || nextBalance, settled);
-          return settled;
-        });
-      }, 7000));
-      return transfer;
-    } finally { mutationLock.current = false; }
+      const intent = await request<Transfer>('/transactions', { method: 'POST', headers: { 'Idempotency-Key': key }, body: JSON.stringify({ wallet_id: wallet.id, network: wallet.network, asset: 'USDC', recipient, amount }) });
+      if (!active.current) throw new Error('Your session changed. Check transaction history before retrying.');
+      await signTransfer(wallet, capabilities, intent);
+      const result = await request<Transfer>(`/transactions/${intent.id}`);
+      if (active.current) await refresh();
+      return result;
+    } finally { lock.current = false; }
   };
-  const resetDemo = () => {
-    if (!DEMO_MODE) return;
-    timers.current.forEach(clearTimeout); timers.current = [];
-    persist('1240520000', initialTransfers); setBalance('1240520000'); setTransfers(initialTransfers);
-  };
-  return <FinanceContext.Provider value={{ balance, address, transfers, loading, error, send, refresh, resetDemo }}>
-    {children}
-  </FinanceContext.Provider>;
+  return <FinanceContext.Provider value={{ balance, balanceKnown, address: wallet?.address || '', wallets, wallet, capabilities,
+    networkLabel: capabilities ? capabilities.network === 'base' ? 'Base' : 'Base Sepolia · Testnet' : 'Network unavailable',
+    transfers, loading, error, selectWallet: id => { setBalanceKnown(false); setSelected(id); }, connect, send, refresh }}>{children}</FinanceContext.Provider>;
 }
-export function useFinance() {
-  const value = useContext(FinanceContext);
-  if (!value) throw new Error('FinanceProvider is required.');
-  return value;
-}
+export function useFinance() { const value = useContext(FinanceContext); if (!value) throw new Error('FinanceProvider is required.'); return value; }

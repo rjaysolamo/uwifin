@@ -132,8 +132,8 @@ async fn apply_session(state: &AppState, session: &serde_json::Value, event: Opt
     };
     if !["confirmed", "failed"].contains(&record.status.as_str()) && !(record.status == "processing" && status == "pending") {
         let details = &session["transaction_details"];
-        let actual_fiat = details["source_amount"].as_str().map(parse_minor).transpose()?.unwrap_or(0);
-        let actual_crypto = details["destination_amount"].as_str().map(crate::transaction::parse_amount).transpose()?.unwrap_or(0);
+        let actual_fiat = details["source_amount"].as_str().filter(|s| !s.bytes().all(|c| c == b'0' || c == b'.')).map(parse_minor).transpose()?.unwrap_or(0);
+        let actual_crypto = details["destination_amount"].as_str().filter(|s| !s.bytes().all(|c| c == b'0' || c == b'.')).map(crate::transaction::parse_amount).transpose()?.unwrap_or(0);
         let currency = details["source_currency"].as_str().unwrap_or(&record.fiat_currency).to_ascii_uppercase();
         if !["USD", "EUR"].contains(&currency.as_str()) || (status == "confirmed" && (actual_fiat == 0 || actual_crypto == 0)) { return Err(ApiError::unavailable()); }
         sqlx::query("UPDATE payments SET status = ?, provider_reference = ?, fiat_currency = ?, fiat_amount_minor = ?, crypto_amount_atomic = ?, updated_at = NOW() WHERE id = ?")
@@ -146,7 +146,7 @@ async fn apply_session(state: &AppState, session: &serde_json::Value, event: Opt
 pub async fn list_payments(State(state): State<AppState>, headers: HeaderMap) -> Result<Json<serde_json::Value>, ApiError> {
     let user = authorize(&state, &headers).await?;
     let records = sqlx::query_as::<_, PaymentResponse>("SELECT * FROM payments WHERE user_id = ? ORDER BY created_at DESC LIMIT 100").bind(user.id).fetch_all(&state.pool).await?;
-    Ok(Json(serde_json::json!({ "payments": records })))
+    Ok(Json(serde_json::json!({ "payments": records.iter().map(|record| serde_json::json!({ "id": record.id, "status": record.status, "fiat_currency": record.fiat_currency, "fiat_amount_minor": record.fiat_amount_minor.to_string(), "crypto_amount_atomic": record.crypto_amount_atomic.to_string(), "created_at": record.created_at })).collect::<Vec<_>>() })))
 }
 pub async fn reconcile_pending(state: &AppState) -> Result<(), ApiError> {
     if !state.config.onramp_enabled() { return Ok(()); }

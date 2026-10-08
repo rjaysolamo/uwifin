@@ -1,78 +1,56 @@
-use axum::{
-    body::Body,
-    http::{Method, StatusCode},
-    Router,
-};
 use serde_json::json;
-use tower::ServiceExt;
-
-use crate::{
-    auth::{login, me, register},
-    config::Config,
-    db,
-    state::AppState,
-};
-
-pub async fn setup_tx_test_app() -> Router {
-    let database_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "mysql://uwifin:uwifin@localhost:3306/uwifin".to_string());
-
-    let pool = sqlx::MySqlPool::connect(&database_url)
-        .await
-        .expect("Database unavailable for transaction tests");
-
-    db::run_migrations(&pool)
-        .await
-        .expect("Migration failed for transaction tests");
-
-    let config = Config::from_env().expect("Config failed");
-    let state = AppState {
-        pool: std::sync::Arc::new(pool),
-        config: std::sync::Arc::new(config),
-    };
-
-    Router::new()
-        .route("/auth/register", axum::routing::post(register))
-        .route("/auth/login", axum::routing::post(login))
-        .route("/auth/me", axum::routing::get(me))
-        .route("/transactions", axum::routing::post(crate::transaction::create_transaction))
-        .route("/transactions/:id", axum::routing::get(crate::transaction::get_transaction))
-        .with_state(state)
+use uwifin_api::{transaction::{parse_amount, attach_signature, validate_prepared, TransactionStatus}, alchemy::{receipt_state, contains_transfer, ReceiptState}, payments::verify_signature};
+#[test]
+fn exact_amounts_and_overflow() {
+    assert_eq!(parse_amount("1.000001").unwrap(), 1000001);
+    assert_eq!(parse_amount("9223372036854.775807").unwrap(), i64::MAX);
+    for amount in ["0", "-1", "1e6", "1.0000001", "9223372036854.775808", "1.", ".1"] { assert!(parse_amount(amount).is_err(), "{amount}"); }
 }
-
-#[tokio::test]
-async fn test_create_transaction_requires_idempotency_key() {
-    let app = setup_tx_test_app().await;
-
-    let req = axum::http::Request::builder()
-        .uri("/transactions")
-        .method(Method::POST)
-        .header("content-type", "application/json")
-        .header("authorization", "Bearer invalid-token")
-        .body(Body::from(json!({
-            "wallet_id": "abc",
-            "network": "base",
-            "asset": "USDC",
-            "recipient": "0x1234567890abcdef1234567890abcdef12345678",
-            "amount": "10.00",
-            "idempotency_key": ""
-        }).to_string()))
-        .unwrap();
-
-    let response = app.oneshot(req).await.unwrap();
-    assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+#[test]
+fn terminal_states_cannot_be_reopened() {
+    use TransactionStatus::*;
+    assert!(Pending.can_transition_to(Confirmed));
+    assert!(!Created.can_transition_to(Confirmed));
+    assert!(!Confirmed.can_transition_to(Submitted));
+    assert!(!Failed.can_transition_to(Pending));
 }
-
-#[tokio::test]
-async fn test_transaction_request_validates_amount() {
-    let result = crate::transaction::CreateTransactionRequest {
-        wallet_id: "wallet-1".to_string(),
-        network: "base".to_string(),
-        asset: "USDC".to_string(),
-        recipient: "0x1234567890abcdef1234567890abcdef12345678".to_string(),
-        amount: "0.00".to_string(),
-        idempotency_key: "key-1".to_string(),
-    }.validate();
-
-    assert!(result.is_err());
+#[test]
+fn sponsorship_and_signed_payload_are_bound() {
+    let sender = "0x1111111111111111111111111111111111111111";
+    let mut prepared = json!({"type":"user-operation-v070", "chainId":"0x2105", "data":{"sender":sender,"paymaster":sender,"nonce":"0x0"},"signatureRequest":{"type":"personal_sign"},"feePayment":{"sponsored":true}});
+    assert!(validate_prepared(&prepared, sender, 8453).is_ok());
+    assert!(validate_prepared(&prepared, sender, 84532).is_err());
+    let mut signed = prepared.clone(); signed["signature"] = json!({"type":"secp256k1","data":format!("0x{}", "11".repeat(65))});
+    assert!(attach_signature(&prepared, &signed).is_ok());
+    signed["data"]["nonce"] = json!("0x1");
+    assert!(attach_signature(&prepared, &signed).is_err());
+    prepared["feePayment"]["sponsored"] = json!(false);
+    assert!(validate_prepared(&prepared, sender, 8453).is_err());
+    prepared["data"]["paymaster"] = json!(""); prepared["data"]["paymasterAndData"] = json!("💰".repeat(30));
+    assert!(validate_prepared(&prepared, sender, 8453).is_err());
+}
+#[test]
+fn successful_http_is_not_settlement() {
+    assert_eq!(receipt_state(&json!(null)).unwrap(), ReceiptState::Pending);
+    assert!(receipt_state(&json!({"status":200})).is_err());
+    assert_eq!(receipt_state(&json!({"status":"0x0"})).unwrap(), ReceiptState::Failed);
+    let sender = "0x1111111111111111111111111111111111111111";
+    let recipient = "0x2222222222222222222222222222222222222222";
+    let token = "0x3333333333333333333333333333333333333333";
+    let receipt = json!({"logs":[{"address": token, "topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",format!("0x{:0>64}",&sender[2..]),format!("0x{:0>64}",&recipient[2..])],"data":"0x0f4240"}]});
+    assert!(contains_transfer(&receipt,token,sender,recipient,1000000));
+    assert!(!contains_transfer(&receipt,token,sender,recipient,1000001));
+    assert!(!contains_transfer(&receipt,recipient,sender,recipient,1000000));
+    assert!(!contains_transfer(&receipt,token,"",recipient,1000000));
+}
+#[test]
+fn webhook_signature_replay_and_tampering() {
+    use hmac::{Hmac, Mac}; use sha2::Sha256;
+    let secret = "synthetic-webhook-secret"; let payload = br#"{"id":"evt_fixture"}"#;
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap(); mac.update(b"1000."); mac.update(payload);
+    let signature = format!("t=1000,v1={}", hex::encode(mac.finalize().into_bytes()));
+    assert!(verify_signature(secret,&signature,payload,1001));
+    assert!(!verify_signature(secret,&signature,payload,1301));
+    assert!(!verify_signature(secret,&signature,b"tampered",1001));
+    assert!(!verify_signature(secret,&format!("{signature},t=1000"),payload,1001));
 }
