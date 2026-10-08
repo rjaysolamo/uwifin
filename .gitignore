@@ -1,0 +1,16 @@
+node_modules
+.next
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+coverage
+
+# Rust
+/target
+**/target
+Cargo.lock
+
+# Docker
+*.pid

@@ -1,0 +1,18 @@
+{
+  "name": "uwifin",
+  "private": true,
+  "packageManager": "pnpm@9.15.0",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:web": "pnpm --dir apps/web dev",
+    "dev:api": "cargo run --manifest-path services/api/Cargo.toml",
+    "lint:web": "pnpm --dir apps/web lint",
+    "check:api": "cargo check --manifest-path services/api/Cargo.toml",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  }
+}
