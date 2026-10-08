@@ -31,7 +31,7 @@ pub fn validate_name(value: &str) -> Result<String, ApiError> {
     if !(2..=60).contains(&name.chars().count()) || name.chars().any(char::is_control) { return Err(ApiError::new("INVALID_REQUEST", "Name must contain 2 to 60 characters.")); }
     Ok(name.into())
 }
-fn session_token(headers: &HeaderMap) -> Result<&str, ApiError> {
+pub fn session_token(headers: &HeaderMap) -> Result<&str, ApiError> {
     headers.get("authorization").and_then(|v| v.to_str().ok()).and_then(|v| v.strip_prefix("Bearer "))
         .filter(|token| token.len() >= 32 && token.len() <= 128).ok_or_else(|| ApiError::new("UNAUTHORIZED", "Please sign in to continue."))
 }
