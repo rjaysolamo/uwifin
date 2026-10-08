@@ -1,7 +1,11 @@
 {
   "name": "uwifin",
   "private": true,
-  "packageManager": "pnpm@9.10.0",
+  "workspaces": [
+    "apps/*",
+    "services/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev:web": "pnpm --dir apps/web dev",
     "dev:api": "cargo run --manifest-path services/api/Cargo.toml",
