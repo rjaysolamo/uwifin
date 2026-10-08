@@ -60,6 +60,15 @@ pub async fn create_wallet(State(state): State<AppState>, headers: HeaderMap, Js
         .bind(&req.challenge_id).bind(&user.id).bind(hash(session_token(&headers)?)).fetch_optional(&mut *tx).await?
         .ok_or_else(|| ApiError::new("INVALID_REQUEST", "This wallet challenge has expired or was already used. Reconnect your wallet."))?;
     if !verify_ownership(&challenge.message, &req.signature, &challenge.signer_address) { return Err(ApiError::new("FORBIDDEN", "The wallet signature could not be verified.")); }
+    // Serialize connections for this user and reuse an already verified signing account.
+    sqlx::query("SELECT id FROM users WHERE id = ? FOR UPDATE").bind(&user.id).fetch_one(&mut *tx).await?;
+    let existing: Option<(String,)> = sqlx::query_as("SELECT id FROM wallets WHERE user_id = ? AND signer_address = ? AND network = ? AND verified_at IS NOT NULL LIMIT 1")
+        .bind(&user.id).bind(&challenge.signer_address).bind(&state.config.network).fetch_optional(&mut *tx).await?;
+    if let Some((id,)) = existing {
+        sqlx::query("UPDATE wallet_challenges SET consumed_at = NOW() WHERE id = ?").bind(&req.challenge_id).execute(&mut *tx).await?;
+        tx.commit().await?;
+        return Ok(Json(owned_wallet(&state, &user.id, &id).await?));
+    }
     let response = crate::alchemy::wallet_rpc(&state, "wallet_requestAccount", serde_json::json!([{
         "signerAddress": challenge.signer_address, "creationHint": { "accountType": "sma-b", "createAdditional": true }
     }])).await?;

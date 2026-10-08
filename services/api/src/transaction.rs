@@ -159,7 +159,7 @@ pub fn validate_prepared(call: &serde_json::Value, sender: &str, chain: u64) -> 
         return Err(ApiError::new("PROVIDER_REJECTED", "The prepared transfer does not match your wallet."));
     }
     let sponsored = call["data"]["paymaster"].as_str().is_some_and(|value| crate::wallet_validation::validate_wallet_address(value).is_ok()) ||
-        call["data"]["paymasterAndData"].as_str().is_some_and(|value| value.len() >= 42 && crate::wallet_validation::validate_wallet_address(&value[..42]).is_ok());
+        call["data"]["paymasterAndData"].as_str().is_some_and(|value| value.get(..42).is_some_and(|prefix| crate::wallet_validation::validate_wallet_address(prefix).is_ok()));
     if !sponsored || call["feePayment"]["sponsored"] != true { return Err(ApiError::new("PROVIDER_REJECTED", "This transfer is not eligible for sponsored gas.")); }
     Ok(())
 }
@@ -221,6 +221,7 @@ pub async fn reconcile_one(state: &AppState, id: &str, user: &str) -> Result<(),
     let receipt = crate::alchemy::chain_rpc(state, "eth_getTransactionReceipt", serde_json::json!([hash])).await?;
     if receipt.is_null() { return Ok(()); }
     if !receipt["transactionHash"].as_str().is_some_and(|value| value.eq_ignore_ascii_case(hash)) { return Err(ApiError::unavailable()); }
+    sqlx::query("UPDATE transactions SET tx_hash = ? WHERE id = ? AND status IN ('SUBMITTED','PENDING')").bind(hash).bind(id).execute(&state.pool).await?;
     let block = crate::alchemy::hex_u64(&receipt["blockNumber"]).ok_or_else(ApiError::unavailable)?;
     let current = crate::alchemy::chain_rpc(state, "eth_blockNumber", serde_json::json!([])).await?;
     let current = crate::alchemy::hex_u64(&current).ok_or_else(ApiError::unavailable)?;
@@ -245,6 +246,7 @@ pub async fn reconcile_pending(state: &AppState) -> Result<(), ApiError> {
     let pending: Vec<(String, String)> = sqlx::query_as("SELECT id, user_id FROM transactions WHERE status IN ('SUBMITTED','PENDING') ORDER BY updated_at ASC LIMIT 50").fetch_all(&state.pool).await?;
     for (id, user) in pending {
         if let Err(error) = reconcile_one(state, &id, &user).await { tracing::warn!(transaction_id = id, error_code = error.error.code, "Transaction reconciliation deferred"); }
+        sqlx::query("UPDATE transactions SET updated_at = NOW() WHERE id = ? AND status IN ('SUBMITTED','PENDING')").bind(&id).execute(&state.pool).await?;
     }
     Ok(())
 }

@@ -2,7 +2,7 @@
 import { useEffect, useRef, type ReactNode } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Check, Copy, Plus, X } from 'lucide-react';
 import { useState } from 'react';
-import { type Transfer } from '@/lib/demo';
+import { type Transfer } from '@/lib/transfers';
 import { money, shortAddress } from '@/lib/money';
 
 export function UsdcIcon({ small = false }: { small?: boolean }) {
@@ -27,7 +27,7 @@ export function TransactionIcon({ kind }: { kind: Transfer['kind'] }) {
   return <span className={`transaction-icon ${kind}`}>{kind === 'sent' ? <ArrowUpRight size={19}/> : kind === 'received' ? <ArrowDownLeft size={19}/> : <Plus size={19}/>}</span>;
 }
 export function TransactionTable({ transfers, compact = false, onSelect }: { transfers: Transfer[]; compact?: boolean; onSelect: (transfer: Transfer) => void }) {
-  if (!transfers.length) return <div className="empty-state"><ArrowUpRight size={28}/><h3>No transactions yet</h3><p>Your transfers will appear here when you start sending or receiving.</p></div>;
+  if (!transfers.length) return <div className="empty-state"><ArrowUpRight size={28}/><h3>No transactions yet</h3><p>Transfers initiated in UwiFin will appear here.</p></div>;
   return <div className="table-scroll"><table className="transaction-table"><thead><tr><th>Transaction</th>{!compact && <th>Date</th>}<th>Status</th><th className="align-right">Amount</th></tr></thead><tbody>
     {transfers.map((transfer) => <tr key={transfer.id} onClick={() => onSelect(transfer)}>
       <td><button className="transaction-main" onClick={(event) => { event.stopPropagation(); onSelect(transfer); }}><TransactionIcon kind={transfer.kind}/><span><strong>{transfer.kind === 'sent' ? 'Sent to ' : transfer.kind === 'received' ? 'Received from ' : ''}{transfer.name}</strong><small>{compact ? new Date(transfer.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }) : shortAddress(transfer.address)} <span>·</span> USDC</small></span></button></td>

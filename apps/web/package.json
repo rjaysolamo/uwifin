@@ -13,7 +13,7 @@
   "dependencies": {
     "@alchemy/wallet-apis": "5.3.0",
     "@stripe/crypto": "1.1.3",
-    "@stripe/stripe-js": "10.0.0",
+    "@stripe/stripe-js": "1.54.2",
     "@types/node": "22.20.5",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",

@@ -1,18 +1,52 @@
 'use client';
-import { useState, type FormEvent } from 'react';
-import { ArrowRight, Check, ChevronDown, CreditCard, Globe2, LockKeyhole, ShieldCheck, Wallet } from 'lucide-react';
-import { DEMO_MODE } from '@/contexts/AuthContext';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useFinance } from '@/contexts/FinanceContext';
-import { money, parseAmount, shortAddress } from '@/lib/money';
-import { Modal, UsdcIcon } from './UI';
-export function PaymentsPage() {
-  const { address } = useFinance();
-  const [amount, setAmount] = useState('100');
+import { request } from '@/lib/api';
+import { decimalAmount } from '@/lib/money';
+type Payment = { id: string; status: string; fiat_currency: string; fiat_amount_minor: string; crypto_amount_atomic: string };
+type Session = { client_secret: string; publishable_key: string };
+function StripePurchase({ session }: { session: Session }) {
+  const container = useRef<HTMLDivElement>(null);
   const [error, setError] = useState('');
-  const [preview, setPreview] = useState(false);
-  const review = (event: FormEvent) => {
-    event.preventDefault(); setError('');
-    try { parseAmount(amount); setPreview(true); } catch (err) { setError(err instanceof Error ? err.message : 'Enter a valid amount.'); }
+  useEffect(() => {
+    let disposed = false;
+    const target = container.current;
+    void (async () => {
+      try {
+        const { loadStripeOnramp } = await import('@stripe/crypto/pure');
+        const stripe = await loadStripeOnramp(session.publishable_key);
+        if (!disposed && target) { if (!stripe) throw new Error('Stripe could not be loaded.'); stripe.createSession({ clientSecret: session.client_secret, appearance: { theme: 'light' } }).mount(target); }
+      } catch { if (!disposed) setError('Stripe could not be loaded. Check your connection and retry this purchase.'); }
+    })();
+    return () => { disposed = true; target?.replaceChildren(); };
+  }, [session]);
+  return <>{error && <p role="alert" className="field-error">{error}</p>}<div ref={container}/></>;
+}
+export function PaymentsPage() {
+  const { wallet, capabilities, networkLabel } = useFinance();
+  const [amount, setAmount] = useState('100');
+  const [currency, setCurrency] = useState('USD');
+  const [session, setSession] = useState<Session | null>(null);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const key = useRef<{ fingerprint: string; value: string } | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    const refresh = () => request<{ payments: Payment[] }>('/payments', { signal: controller.signal }).then(result => setPayments(result.payments)).catch(() => { if (!controller.signal.aborted) setError('Payment history is temporarily unavailable.'); });
+    void refresh(); const timer = setInterval(() => { if (!document.hidden) void refresh(); }, 15_000);
+    return () => { controller.abort(); clearInterval(timer); };
+  }, []);
+  const buy = async (event: FormEvent) => {
+    event.preventDefault(); if (!wallet || busy) return;
+    setBusy(true); setError('');
+    try {
+      if (!/^\d{1,5}(\.\d{1,2})?$/.test(amount) || Number(amount) <= 0 || Number(amount) > 10000) throw new Error('Enter an amount from 0.01 to 10,000 with at most two decimal places.');
+      const fingerprint = `${wallet.id}:${currency}:${amount}`;
+      if (key.current?.fingerprint !== fingerprint) key.current = { fingerprint, value: crypto.randomUUID() };
+      setSession(await request<Session>('/payments', { method: 'POST', headers: { 'Idempotency-Key': key.current.value }, body: JSON.stringify({ wallet_id: wallet.id, amount, currency }) }));
+    } catch (err) { setError(err instanceof Error ? err.message : 'Unable to start purchase.'); }
+    finally { setBusy(false); }
   };
-  return <><section className="page-heading"><div><span className="eyebrow">READY FOR THE LITTLE THINGS</span><h1>Add money<span className="greeting-dot">.</span></h1><p>Bring money into your wallet, then make it mean something.</p></div><span className="availability-pill">Provider eligibility required</span></section><div className="flow-layout"><section className="card flow-card payment-card"><div className="card-heading"><h2>Buy USDC</h2><span className="stripe-wordmark">stripe</span></div><p className="muted">A simple on-ramp from your money to your wallet.</p><form className="stacked-form" onSubmit={review}><label htmlFor="buy-amount">You pay</label><div className="amount-input large"><span>$</span><input id="buy-amount" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required/><span className="input-currency">USD</span></div><div className="preset-amounts">{['50', '100', '250', '500'].map((value) => <button type="button" className={amount === value ? 'active' : ''} onClick={() => setAmount(value)} key={value}>${value}</button>)}</div><label htmlFor="buy-asset">Receive asset</label><div className="asset-select"><UsdcIcon small/><div><strong>USD Coin</strong><small>USDC</small></div><ChevronDown size={16}/></div><label htmlFor="buy-network">Destination network</label><div className="select-wrap"><select id="buy-network"><option>Base · Subject to Stripe support</option></select><ChevronDown size={15}/></div><div className="payment-destination"><Wallet size={17}/><span>To your UwiFin wallet</span><code>{shortAddress(address || '0x0000')}</code></div><div className="info-note"><Globe2 size={19}/><p>On-ramp availability depends on your country, currency, asset, network, and Stripe’s eligibility checks. PHP bank and GCash payouts are not currently available.</p></div>{error && <p className="field-error" role="alert">{error}</p>}<button className="button primary full-width">{DEMO_MODE ? 'Preview purchase' : 'Check purchase availability'}<ArrowRight size={17}/></button><span className="secure-form-note"><LockKeyhole size={13}/>No card details are collected by UwiFin.</span></form></section><aside className="flow-side"><section className="payment-how"><span className="large-icon"><CreditCard size={25}/></span><h2>A simpler start.</h2><p>When available, Stripe handles your payment and delivers crypto directly to your wallet.</p>{['Choose your amount', 'Complete Stripe’s verification', 'Pay securely with Stripe', 'Receive crypto in your wallet'].map((text, index) => <div key={text}><span>{index + 1}</span>{text}</div>)}</section><div className="payment-availability"><ShieldCheck size={20}/><h3>Clear expectations.</h3><p>No payment is marked complete until a verified provider webhook confirms its status. Previewing this flow won’t charge you.</p></div></aside></div>{preview && <Modal title="Purchase availability" onClose={() => setPreview(false)}><div className="connect-content"><span className="large-icon"><UsdcIcon/></span><h3>{money(parseAmount(amount))} USD → USDC</h3><p>{DEMO_MODE ? 'This demo shows the purchase flow. Stripe purchases are not enabled, and no payment has been created.' : 'Stripe on-ramp credentials, platform approval, and support for your destination network must be verified before purchases are enabled.'}</p><div className="info-note"><Check size={18}/><p>No charge was made. No crypto delivery or exchange rate is promised.</p></div><button className="button primary full-width" onClick={() => setPreview(false)}>Back to my wallet</button></div></Modal>}</>;
+  return <><section className="page-heading"><div><h1>Add money.</h1><p>Buy USDC through Stripe where supported.</p></div></section><div className="flow-layout"><section className="card flow-card"><h2>Stripe on-ramp</h2><p>Destination: {wallet?.address || 'Connect a wallet first'} · {networkLabel}</p><p>Mode: {capabilities?.stripe_mode || 'Unavailable'}</p>{!capabilities?.onramp_enabled && <p className="info-note">Card purchases are not available for this wallet. Stripe approval and a supported mainnet destination are required.</p>}{error && <p role="alert" className="field-error">{error}</p>}{session ? <StripePurchase session={session}/> : <form className="stacked-form" onSubmit={buy}><label htmlFor="buy-amount">Purchase amount</label><input id="buy-amount" className="input" inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)} required/><label htmlFor="currency">Currency</label><select id="currency" className="input" value={currency} onChange={event => setCurrency(event.target.value)}><option>USD</option><option>EUR</option></select><p>Stripe displays the final quote, fees, eligibility checks, and amount before you pay. No card details are collected by UwiFin.</p><button className="button primary" disabled={busy || !wallet || !capabilities?.onramp_enabled}>{busy ? 'Opening Stripe…' : 'Continue to Stripe'}</button></form>}</section><aside className="flow-side"><h2>Cash out</h2><p>Fiat cash-out is not available. Stripe stablecoin payouts send stablecoins to wallets and do not provide a generic wallet-to-PHP bank or GCash off-ramp.</p><p>A supported payout provider and destination corridor must be configured before cash-out can be offered.</p></aside></div><section className="card wallet-assets"><h2>Payment history</h2><p>Status is verified by the backend with Stripe. Browser redirects do not confirm payment.</p>{payments.length ? payments.map(payment => <div className="wallet-asset-row" key={payment.id}><span>{payment.fiat_currency} {(BigInt(payment.fiat_amount_minor) / 100n).toString()}.{(BigInt(payment.fiat_amount_minor) % 100n).toString().padStart(2, '0')}</span><span>{decimalAmount(payment.crypto_amount_atomic)} USDC</span><strong>{payment.status}</strong></div>) : <p>No payments yet.</p>}</section></>;
 }

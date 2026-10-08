@@ -35,6 +35,7 @@ pub fn receipt_state(value: &Value) -> Result<ReceiptState, ApiError> {
 }
 pub fn valid_hash(hash: &str) -> bool { hash.len() == 66 && hash.starts_with("0x") && hash[2..].bytes().all(|c| c.is_ascii_hexdigit()) }
 pub fn contains_transfer(receipt: &Value, token: &str, sender: &str, recipient: &str, amount: i64) -> bool {
+    if amount <= 0 || validate_wallet_address(sender).is_err() || validate_wallet_address(recipient).is_err() { return false; }
     const TRANSFER: &str = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
     let topic = |address: &str| format!("0x{:0>64}", &address[2..].to_ascii_lowercase());
     receipt.get("logs").and_then(Value::as_array).is_some_and(|logs| logs.iter().any(|log| {

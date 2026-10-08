@@ -4,8 +4,9 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState, type ReactNode } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Bell, ChevronDown, CircleHelp, CreditCard, Heart, LayoutGrid, LogOut, Menu, Search, Settings, ShieldCheck, Wallet, X, ArrowLeftRight, Check } from 'lucide-react';
+import { useFinance } from '@/contexts/FinanceContext';
 import { Brand } from './Brand';
-import { DEMO_MODE, useAuth } from '@/contexts/AuthContext';
+import { useAuth } from '@/contexts/AuthContext';
 
 const navigation = [
   { name: 'Overview', href: '/', icon: LayoutGrid },
@@ -16,6 +17,7 @@ const navigation = [
   { name: 'Add money', href: '/payments', icon: CreditCard },
 ];
 export function AppShell({ children }: { children: ReactNode }) {
+  const { networkLabel } = useFinance();
   const pathname = usePathname();
   const router = useRouter();
   const { user, loading, logout } = useAuth();
@@ -24,14 +26,14 @@ export function AppShell({ children }: { children: ReactNode }) {
   const [profileOpen, setProfileOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [logoutError, setLogoutError] = useState('');
-  useEffect(() => { if (!DEMO_MODE && !loading && !user) router.replace('/login'); }, [user, loading, router]);
+  useEffect(() => { if (!loading && !user) router.replace('/login'); }, [user, loading, router]);
   useEffect(() => { setMobileOpen(false); setNotifications(false); setProfileOpen(false); }, [pathname]);
   useEffect(() => {
     const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') { setNotifications(false); setProfileOpen(false); setMobileOpen(false); } };
     window.addEventListener('keydown', handler); return () => window.removeEventListener('keydown', handler);
   }, []);
-  if (!DEMO_MODE && (loading || !user)) return <div className="loading-page"><Brand/><span className="loading-spinner"/><p>Opening your account…</p></div>;
-  const name = user?.name || user?.email.split('@')[0] || 'Rjay';
+  if ((loading || !user)) return <div className="loading-page"><Brand/><span className="loading-spinner"/><p>Opening your account…</p></div>;
+  const name = user?.name || user?.email.split('@')[0] || 'Account';
   return <div className="app-shell">
     <a href="#main-content" className="skip-link">Skip to content</a>
     {mobileOpen && <button className="sidebar-overlay" aria-label="Close navigation" onClick={() => setMobileOpen(false)}/>}
@@ -52,14 +54,14 @@ export function AppShell({ children }: { children: ReactNode }) {
         <div className="breadcrumb">Your workspace <span>/</span> <strong>{navigation.find((item) => item.href === pathname)?.name || (pathname === '/settings' ? 'Settings' : pathname === '/help' ? 'Help & support' : 'Overview')}</strong></div>
         <div className="topbar-actions">
           <form className="global-search" role="search" onSubmit={(event) => { event.preventDefault(); router.push(`/transactions?q=${encodeURIComponent(query)}`); }}><Search size={16}/><input aria-label="Search transactions" placeholder="Search anything…" value={query} onChange={(event) => setQuery(event.target.value)}/><kbd>↵</kbd></form>
-          <span className="network-pill"><span/>Base{DEMO_MODE ? '' : ' Sepolia'}</span>
-          <div className="popover-wrap"><button className={`icon-button notification-button ${notifications ? 'selected' : ''}`} aria-label="Notifications" aria-expanded={notifications} onClick={() => { setNotifications(!notifications); setProfileOpen(false); }}><Bell size={20}/><span className="notification-dot"/></button>{notifications && <div className="popover notification-popover"><h3>Notifications</h3><div><span className="notification-icon"><Check size={17}/></span><p><strong>Welcome to UwiFin</strong><small>{DEMO_MODE ? 'You’re exploring with demo funds. No real money is moved.' : 'Your account is ready. Connect a wallet to get started.'}</small></p></div><Link href="/transactions">View your activity <ArrowUpRight size={14}/></Link></div>}</div>
+          <span className="network-pill"><span/>{networkLabel}</span>
+          <div className="popover-wrap"><button className={`icon-button notification-button ${notifications ? 'selected' : ''}`} aria-label="Notifications" aria-expanded={notifications} onClick={() => { setNotifications(!notifications); setProfileOpen(false); }}><Bell size={20}/><span className="notification-dot"/></button>{notifications && <div className="popover notification-popover"><h3>Notifications</h3><div><span className="notification-icon"><Check size={17}/></span><p><strong>Welcome to UwiFin</strong><small>Connect a wallet to view your balance and send USDC.</small></p></div><Link href="/transactions">View your activity <ArrowUpRight size={14}/></Link></div>}</div>
           <span className="topbar-divider"/>
-          <div className="popover-wrap"><button className="profile-button" aria-label="Account menu" aria-expanded={profileOpen} onClick={() => { setProfileOpen(!profileOpen); setNotifications(false); }}><span className="avatar">{name.split(' ').map((item) => item[0]).slice(0, 2).join('').toUpperCase()}</span><ChevronDown size={14}/></button>{profileOpen && <div className="popover profile-popover"><strong>{name}</strong><small>{user?.email || 'Demo account'}</small><Link href="/settings"><Settings size={16}/>Account settings</Link><Link href="/login"><LogOut size={16}/>{DEMO_MODE ? 'Go to sign in' : 'Switch account'}</Link><button onClick={async () => { try { await logout(); router.push('/login'); } catch { setLogoutError('Unable to sign out. Please try again.'); } }}><LogOut size={16}/>Sign out</button>{logoutError && <p className="field-error">{logoutError}</p>}</div>}</div>
+          <div className="popover-wrap"><button className="profile-button" aria-label="Account menu" aria-expanded={profileOpen} onClick={() => { setProfileOpen(!profileOpen); setNotifications(false); }}><span className="avatar">{name.split(' ').map((item) => item[0]).slice(0, 2).join('').toUpperCase()}</span><ChevronDown size={14}/></button>{profileOpen && <div className="popover profile-popover"><strong>{name}</strong><small>{user?.email || ''}</small><Link href="/settings"><Settings size={16}/>Account settings</Link><Link href="/login"><LogOut size={16}/>Switch account</Link><button onClick={async () => { try { await logout(); router.push('/login'); } catch { setLogoutError('Unable to sign out. Please try again.'); } }}><LogOut size={16}/>Sign out</button>{logoutError && <p className="field-error">{logoutError}</p>}</div>}</div>
         </div>
       </header>
       <main id="main-content" className="main-content">{children}</main>
-      <footer className="app-footer"><span>© 2026 UwiFin <span className="footer-dot">·</span> Made for the people you love.</span><span><ShieldCheck size={13}/>{DEMO_MODE ? 'Demo workspace · No real funds' : 'Base Sepolia · Test network'}</span></footer>
+      <footer className="app-footer"><span>© 2026 UwiFin <span className="footer-dot">·</span> Made for the people you love.</span><span><ShieldCheck size={13}/>{networkLabel}</span></footer>
     </div>
   </div>;
 }
