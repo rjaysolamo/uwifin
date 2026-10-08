@@ -14,13 +14,16 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod state;
+pub mod transaction;
 pub mod wallet;
+pub mod wallet_validation;
 
 use crate::{
     auth::{login, logout, me, register},
     config::Config,
     state::AppState,
-    wallet::{create_wallet, get_wallet, get_wallet_balances, list_wallets, WalletCreateRequest},
+    transaction::{create_transaction, get_transaction, CreateTransactionRequest},
+    wallet::{create_wallet, get_wallet, get_wallet_balances, list_wallets},
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -81,6 +84,8 @@ async fn main() -> anyhow::Result<()> {
         .route("/wallets", axum::routing::get(list_wallets).post(create_wallet))
         .route("/wallets/:id", axum::routing::get(get_wallet))
         .route("/wallets/:id/balances", axum::routing::get(get_wallet_balances))
+        .route("/transactions", axum::routing::post(create_transaction))
+        .route("/transactions/:id", axum::routing::get(get_transaction))
         .with_state(app_state)
         .layer(
             tower_http::cors::CorsLayer::permissive()
@@ -91,7 +96,7 @@ async fn main() -> anyhow::Result<()> {
         .layer(TraceLayer::new_for_http());
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
-    tracing::info!("UwiFin API listening on port 8080");
+    tracing::info!("UwiFin API listening on 0.0.0.0:8080");
     axum::serve(listener, app).await?;
 
     Ok(())
