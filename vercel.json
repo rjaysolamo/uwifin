@@ -1,0 +1,7 @@
+{
+  "buildCommand": "pnpm --dir apps/web build",
+  "devCommand": "pnpm --dir apps/web dev",
+  "installCommand": "pnpm install",
+  "framework": "nextjs",
+  "regions": ["iad1"]
+}
