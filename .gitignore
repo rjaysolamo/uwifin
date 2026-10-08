@@ -10,7 +10,8 @@ coverage
 # Rust
 /target
 **/target
-Cargo.lock
 
 # Docker
 *.pid
+
+*.tsbuildinfo

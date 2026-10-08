@@ -1,0 +1,48 @@
+import { NextRequest, NextResponse } from 'next/server';
+
+const COOKIE = 'uwifin_session';
+const allowedPaths = /^(auth\/(register|login|logout|me)|users\/me|wallets(?:\/[a-zA-Z0-9-]+(?:\/balances)?)?|transactions(?:\/[a-zA-Z0-9-]+)?|payments(?:\/[a-zA-Z0-9-]+)?)$/;
+
+async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
+  const requestId = crypto.randomUUID();
+  const fail = (code: string, message: string, status: number) => NextResponse.json({ error: { code, message, request_id: requestId } }, { status });
+  const { path } = await context.params;
+  const endpoint = path.join('/');
+  if (!allowedPaths.test(endpoint)) return fail('NOT_FOUND', 'Endpoint not found.', 404);
+  if (process.env.NEXT_PUBLIC_APP_MODE !== 'live') return fail('DEMO_ONLY', 'Live account services are not enabled in the demo workspace.', 503);
+  if (request.method !== 'GET') {
+    const origin = request.headers.get('origin');
+    if (!origin || origin !== request.nextUrl.origin) return fail('FORBIDDEN', 'Request origin could not be verified.', 403);
+    if (!request.headers.get('content-type')?.startsWith('application/json')) return fail('INVALID_REQUEST', 'Use JSON for this request.', 415);
+  }
+  const base = process.env.API_URL;
+  if (!base) return fail('SERVICE_UNAVAILABLE', 'Account services are temporarily unavailable.', 503);
+  const token = request.cookies.get(COOKIE)?.value;
+  const publicPath = endpoint === 'auth/login' || endpoint === 'auth/register';
+  if (!publicPath && !token) return fail('UNAUTHORIZED', 'Please sign in to continue.', 401);
+  try {
+    const body = request.method === 'GET' ? undefined : await request.text();
+    if (body && new TextEncoder().encode(body).length > 16_384) return fail('INVALID_REQUEST', 'Request is too large.', 413);
+    const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Request-Id': requestId };
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const key = request.headers.get('idempotency-key');
+    if (key) headers['Idempotency-Key'] = key;
+    const response = await fetch(`${base.replace(/\/$/, '')}/api/v1/${endpoint}${request.nextUrl.search}`, {
+      method: request.method, headers, body, cache: 'no-store', signal: AbortSignal.timeout(15_000), redirect: 'error',
+    });
+    const data = await response.json();
+    const session = data.session_id;
+    delete data.session_id;
+    // Provider or infrastructure messages never cross the browser boundary.
+    if (response.status >= 500) return fail('SERVICE_UNAVAILABLE', 'This service is temporarily unavailable. Please try again.', response.status);
+    const result = NextResponse.json(data, { status: response.status, headers: { 'Cache-Control': 'no-store', 'X-Request-Id': requestId } });
+    if (publicPath && response.ok && typeof session === 'string') {
+      result.cookies.set(COOKIE, session, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 });
+    }
+    if ((endpoint === 'auth/logout' && response.ok) || response.status === 401) result.cookies.delete(COOKIE);
+    return result;
+  } catch { return fail('SERVICE_UNAVAILABLE', 'This service is temporarily unavailable. Please try again.', 503); }
+}
+export const GET = proxy;
+export const POST = proxy;
+export const PATCH = proxy;
