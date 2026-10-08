@@ -1,41 +1,19 @@
 'use client';
 
 import Link from 'next/link';
+import { useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { FormEvent, useMemo, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 
-export default function LoginPage() {
+export default function HomePage() {
   const router = useRouter();
-  const { login, register, user } = useAuth();
-  const [isRegister, setIsRegister] = useState(false);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const { user, token } = useAuth();
 
-  if (user) {
-    router.replace('/dashboard');
-  }
-
-  const submit = async (event: FormEvent) => {
-    event.preventDefault();
-    setLoading(true);
-    setError('');
-
-    try {
-      if (isRegister) {
-        await register(email, password);
-      } else {
-        await login(email, password);
-      }
-      router.push('/dashboard');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Authentication failed');
-    } finally {
-      setLoading(false);
+  useEffect(() => {
+    if (user && token) {
+      router.replace('/dashboard');
     }
-  };
+  }, [user, token, router]);
 
   const styles = useMemo(
     () => ({
@@ -44,92 +22,174 @@ export default function LoginPage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #eef6ff 0%, #f8fafc 100%)',
-        padding: '24px',
+        background: 'linear-gradient(135deg, #0066cc 0%, #4f46e5 100%)',
+        padding: 20,
+        position: 'relative',
+      } as const,
+      orb: {
+        position: 'absolute',
+        top: '10%',
+        right: '-8%',
+        width: 500,
+        height: 500,
+        borderRadius: '50%',
+        background: 'rgba(255,255,255,0.12)',
+        filter: 'blur(70px)',
       } as const,
       card: {
+        position: 'relative',
+        zIndex: 1,
         width: '100%',
-        maxWidth: 440,
-        background: '#ffffff',
-        borderRadius: 16,
-        boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08)',
-        padding: 28,
+        maxWidth: 680,
+        background: 'rgba(255,255,255,0.96)',
+        borderRadius: 26,
+        border: '1px solid rgba(255,255,255,0.35)',
+        padding: '48px 42px',
+        boxShadow: '0 30px 60px rgba(15,23,42,0.18)',
       } as const,
-      title: { fontSize: 28, fontWeight: 700, marginBottom: 8, color: '#0f172a' } as const,
-      subtitle: { fontSize: 14, color: '#475569', marginBottom: 20 } as const,
-      form: { display: 'flex', flexDirection: 'column', gap: 16 } as const,
-      input: {
-        border: '1px solid #dbe2ea',
-        borderRadius: 12,
-        padding: '12px 14px',
-        fontSize: 15,
-        outline: 'none',
+      badge: {
+        display: 'inline-block',
+        marginBottom: 18,
+        padding: '8px 12px',
+        borderRadius: 999,
+        letterSpacing: '0.12em',
+        fontSize: 11,
+        fontWeight: 800,
+        textTransform: 'uppercase',
+        color: '#0066cc',
+        background: '#eaf3ff',
       } as const,
-      button: {
-        borderRadius: 12,
-        padding: '12px 16px',
-        background: '#0066cc',
-        color: 'white',
+      title: {
+        margin: '0 0 12px',
+        fontSize: 52,
+        lineHeight: 1.05,
+        letterSpacing: '-0.06em',
+        fontWeight: 900,
+        color: '#0f172a',
+      } as const,
+      gradientText: {
+        background: 'linear-gradient(135deg, #0066cc 0%, #4f46e5 100%)',
+        WebkitBackgroundClip: 'text',
+        WebkitTextFillColor: 'transparent',
+      } as const,
+      tagline: {
+        margin: '0 0 14px',
+        fontSize: 18,
         fontWeight: 700,
+        color: '#0066cc',
+      } as const,
+      subtitle: {
+        margin: '0 0 32px',
+        fontSize: 16,
+        lineHeight: 1.7,
+        color: '#475569',
+      } as const,
+      actions: {
+        display: 'flex',
+        flexWrap: 'wrap',
+        gap: 12,
+      } as const,
+      primary: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderRadius: 12,
+        padding: '14px 22px',
+        background: 'linear-gradient(135deg, #0066cc 0%, #0a5dc2 100%)',
+        color: '#fff',
+        fontWeight: 800,
+        textDecoration: 'none',
+        boxShadow: '0 14px 24px rgba(0,102,204,0.24)',
       } as const,
       secondary: {
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
         borderRadius: 12,
-        padding: '12px 16px',
-        background: '#e2e8f0',
-        color: '#0f172a',
-        fontWeight: 700,
+        padding: '14px 22px',
+        background: '#edf2ff',
+        color: '#1d4ed8',
+        fontWeight: 800,
+        textDecoration: 'none',
+        border: '1px solid rgba(29,78,216,0.14)',
       } as const,
-      error: { color: '#b91c1c', fontSize: 13, marginTop: 4 } as const,
-      footer: { marginTop: 18, fontSize: 14, color: '#475569', textAlign: 'center' } as const,
+      features: {
+        marginTop: 38,
+        paddingTop: 30,
+        borderTop: '1px solid #e2e8f0',
+      } as const,
+      featureGrid: {
+        display: 'grid',
+        gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+        gap: 18,
+      } as const,
+      feature: {
+        padding: 18,
+        borderRadius: 16,
+        background: '#f8fafc',
+        border: '1px solid #e2e8f0',
+        textAlign: 'center',
+      } as const,
+      featureIcon: {
+        fontSize: 28,
+        marginBottom: 10,
+      } as const,
+      featureTitle: {
+        margin: '0 0 6px',
+        fontSize: 14,
+        fontWeight: 800,
+        color: '#0f172a',
+      } as const,
+      featureText: {
+        margin: 0,
+        fontSize: 12,
+        color: '#64748b',
+        lineHeight: 1.5,
+      } as const,
     }),
     [],
   );
 
   return (
     <main style={styles.page}>
+      <div style={styles.orb} />
       <div style={styles.card}>
-        <h1 style={styles.title}>{isRegister ? 'Create your account' : 'Welcome back'}</h1>
+        <div style={styles.badge}>Uwifin</div>
+        <h1 style={styles.title}>
+          <span style={styles.gradientText}>Padala para sa Pamilya.</span>
+        </h1>
+        <p style={styles.tagline}>Modern Technology. Global Connection.</p>
         <p style={styles.subtitle}>
-          {isRegister ? 'Open a secure wallet account to send funds across borders.' : 'Sign in to continue to your UwiFin dashboard.'}
+          Secure cross-border transfers, wallet management, and digital finance for families and businesses who need fast, reliable movement of value.
         </p>
 
-        <form onSubmit={submit} style={styles.form}>
-          <input
-            type="email"
-            placeholder="Email address"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            style={styles.input}
-            required
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            style={styles.input}
-            required
-            minLength={8}
-          />
+        <div style={styles.actions}>
+          <Link href="/login" style={styles.primary}>Get Started</Link>
+          <Link href="/login" style={styles.secondary}>Open Dashboard</Link>
+        </div>
 
-          {error ? <span style={styles.error}>{error}</span> : null}
-
-          <button type="submit" style={styles.button} disabled={loading}>
-            {loading ? 'Please wait...' : isRegister ? 'Create account' : 'Sign in'}
-          </button>
-        </form>
-
-        <div style={styles.footer}>
-          <button
-            type="button"
-            onClick={() => setIsRegister(!isRegister)}
-            style={{ ...styles.secondary, marginTop: 8, width: '100%' }}
-          >
-            {isRegister ? 'Already have an account? Sign in' : 'Need an account? Register'}
-          </button>
-
-          <div style={{ marginTop: 16 }}>
-            <Link href="/" style={{ color: '#0066cc', fontWeight: 600 }}>Back home</Link>
+        <div style={styles.features}>
+          <div style={styles.featureGrid}>
+            <div style={styles.feature}>
+              <div style={styles.featureIcon}>🔒</div>
+              <div style={styles.featureTitle}>Secure</div>
+              <p style={styles.featureText}>Protected wallets with strong user authentication.</p>
+            </div>
+            <div style={styles.feature}>
+              <div style={styles.featureIcon}>⚡</div>
+              <div style={styles.featureTitle}>Fast</div>
+              <p style={styles.featureText}>Move funds across borders in seconds.</p>
+            </div>
+            <div style={styles.feature}>
+              <div style={styles.featureIcon}>💸</div>
+              <div style={styles.featureTitle}>Affordable</div>
+              <p style={styles.featureText}>Transparent pricing with fewer delays.</p>
+            </div>
+            <div style={styles.feature}>
+              <div style={styles.featureIcon}>🌍</div>
+              <div style={styles.featureTitle}>Global</div>
+              <p style={styles.featureText}>Built to support multi-network finance workflows.</p>
+            </div>
           </div>
         </div>
       </div>

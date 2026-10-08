@@ -16,6 +16,7 @@ export default function LoginPage() {
 
   if (user) {
     router.replace('/dashboard');
+    return null;
   }
 
   const submit = async (event: FormEvent) => {
@@ -44,92 +45,197 @@ export default function LoginPage() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #eef6ff 0%, #f8fafc 100%)',
-        padding: '24px',
+        background: 'linear-gradient(135deg, #dfeefd 0%, #f8fafc 100%)',
+        padding: 20,
       } as const,
-      card: {
+      shell: {
         width: '100%',
-        maxWidth: 440,
-        background: '#ffffff',
-        borderRadius: 16,
-        boxShadow: '0 18px 40px rgba(15, 23, 42, 0.08)',
-        padding: 28,
+        maxWidth: 1080,
+        display: 'grid',
+        gap: 24,
+        gridTemplateColumns: '1.05fr 0.95fr',
       } as const,
-      title: { fontSize: 28, fontWeight: 700, marginBottom: 8, color: '#0f172a' } as const,
-      subtitle: { fontSize: 14, color: '#475569', marginBottom: 20 } as const,
-      form: { display: 'flex', flexDirection: 'column', gap: 16 } as const,
+      panel: {
+        background: '#ffffff',
+        borderRadius: 24,
+        padding: 36,
+        boxShadow: '0 30px 60px rgba(15, 23, 42, 0.10)',
+        border: '1px solid rgba(148, 163, 184, 0.2)',
+      } as const,
+      side: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        background: 'linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%)',
+        borderRadius: 24,
+        padding: 32,
+        color: '#fff',
+        boxShadow: '0 30px 60px rgba(30, 58, 138, 0.25)',
+      } as const,
+      logo: {
+        fontSize: 12,
+        fontWeight: 800,
+        letterSpacing: '0.12em',
+        textTransform: 'uppercase',
+        color: '#0066cc',
+        marginBottom: 18,
+      } as const,
+      title: {
+        margin: 0,
+        fontSize: 34,
+        fontWeight: 900,
+        color: '#0f172a',
+      } as const,
+      subtitle: {
+        margin: '10px 0 24px',
+        lineHeight: 1.7,
+        color: '#64748b',
+        fontSize: 15,
+      } as const,
+      form: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 16,
+      } as const,
+      label: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 8,
+        fontSize: 13,
+        fontWeight: 700,
+        color: '#475569',
+      } as const,
       input: {
         border: '1px solid #dbe2ea',
         borderRadius: 12,
         padding: '12px 14px',
         fontSize: 15,
         outline: 'none',
+        background: '#f8fafc',
       } as const,
       button: {
         borderRadius: 12,
         padding: '12px 16px',
-        background: '#0066cc',
-        color: 'white',
-        fontWeight: 700,
+        background: 'linear-gradient(135deg, #0066cc 0%, #0052a3 100%)',
+        color: '#ffffff',
+        fontWeight: 800,
+        fontSize: 15,
       } as const,
       secondary: {
         borderRadius: 12,
         padding: '12px 16px',
-        background: '#e2e8f0',
-        color: '#0f172a',
-        fontWeight: 700,
+        background: '#edf2ff',
+        color: '#1d4ed8',
+        fontWeight: 800,
       } as const,
-      error: { color: '#b91c1c', fontSize: 13, marginTop: 4 } as const,
-      footer: { marginTop: 18, fontSize: 14, color: '#475569', textAlign: 'center' } as const,
+      error: {
+        color: '#b91c1c',
+        background: '#fef2f2',
+        borderRadius: 10,
+        padding: '10px 12px',
+        border: '1px solid #fecaca',
+        fontSize: 13,
+        fontWeight: 600,
+      } as const,
+      footer: {
+        marginTop: 16,
+        textAlign: 'center',
+        fontSize: 14,
+        color: '#475569',
+      } as const,
+      link: {
+        color: '#0066cc',
+        fontWeight: 700,
+        textDecoration: 'none',
+      } as const,
+      heroCard: {
+        maxWidth: 340,
+      } as const,
+      heroTitle: {
+        fontSize: 44,
+        lineHeight: 1.05,
+        fontWeight: 900,
+        marginBottom: 18,
+      } as const,
+      heroText: {
+        margin: 0,
+        color: 'rgba(255,255,255,0.8)',
+        lineHeight: 1.8,
+        fontSize: 15,
+      } as const,
     }),
     [],
   );
 
   return (
     <main style={styles.page}>
-      <div style={styles.card}>
-        <h1 style={styles.title}>{isRegister ? 'Create your account' : 'Welcome back'}</h1>
-        <p style={styles.subtitle}>
-          {isRegister ? 'Open a secure wallet account to send funds across borders.' : 'Sign in to continue to your UwiFin dashboard.'}
-        </p>
+      <div style={styles.shell}>
+        <div style={styles.side}>
+          <div style={styles.heroCard}>
+            <div style={{ fontSize: 12, letterSpacing: '0.12em', textTransform: 'uppercase', fontWeight: 800, opacity: 0.9, marginBottom: 18 }}>
+              Grow your wallet
+            </div>
+            <h2 style={styles.heroTitle}>Move money with confidence.</h2>
+            <p style={styles.heroText}>
+              UwiFin helps families and businesses send funds across borders securely, fast, and with full visibility into balances and transfers.
+            </p>
+          </div>
+        </div>
 
-        <form onSubmit={submit} style={styles.form}>
-          <input
-            type="email"
-            placeholder="Email address"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            style={styles.input}
-            required
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            style={styles.input}
-            required
-            minLength={8}
-          />
+        <div style={styles.panel}>
+          <div style={styles.logo}>Uwifin</div>
+          <h1 style={styles.title}>{isRegister ? 'Create your account' : 'Welcome back'}</h1>
+          <p style={styles.subtitle}>
+            {isRegister
+              ? 'Open a secure wallet and start moving funds across networks.'
+              : 'Sign in to continue to your UwiFin dashboard.'}
+          </p>
 
-          {error ? <span style={styles.error}>{error}</span> : null}
+          <form onSubmit={submit} style={styles.form}>
+            <label style={styles.label}>
+              Email
+              <input
+                type="email"
+                placeholder="you@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                style={styles.input}
+                required
+              />
+            </label>
 
-          <button type="submit" style={styles.button} disabled={loading}>
-            {loading ? 'Please wait...' : isRegister ? 'Create account' : 'Sign in'}
-          </button>
-        </form>
+            <label style={styles.label}>
+              Password
+              <input
+                type="password"
+                placeholder="Enter your password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                style={styles.input}
+                required
+                minLength={8}
+              />
+            </label>
 
-        <div style={styles.footer}>
-          <button
-            type="button"
-            onClick={() => setIsRegister(!isRegister)}
-            style={{ ...styles.secondary, marginTop: 8, width: '100%' }}
-          >
-            {isRegister ? 'Already have an account? Sign in' : 'Need an account? Register'}
-          </button>
+            {error ? <div style={styles.error}>{error}</div> : null}
 
-          <div style={{ marginTop: 16 }}>
-            <Link href="/" style={{ color: '#0066cc', fontWeight: 600 }}>Back home</Link>
+            <button type="submit" style={styles.button} disabled={loading}>
+              {loading ? 'Please wait...' : isRegister ? 'Create account' : 'Sign in'}
+            </button>
+          </form>
+
+          <div style={{ marginTop: 18 }}>
+            <button
+              type="button"
+              style={{ ...styles.secondary, width: '100%' }}
+              onClick={() => setIsRegister((value) => !value)}
+            >
+              {isRegister ? 'Already have an account? Sign in' : 'Need an account? Register'}
+            </button>
+          </div>
+
+          <div style={styles.footer}>
+            <Link href="/" style={styles.link}>Back home</Link>
           </div>
         </div>
       </div>

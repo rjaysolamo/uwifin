@@ -1,0 +1,139 @@
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+
+export type User = {
+  id: string;
+  email: string;
+};
+
+export type Wallet = {
+  id: string;
+  address: string;
+  network: string;
+  wallet_type: string;
+};
+
+export type Balance = {
+  asset: string;
+  balance: string;
+  network: string;
+};
+
+export type CreateWalletRequest = {
+  address: string;
+  network: string;
+  wallet_type: string;
+};
+
+export type CreateTransactionRequest = {
+  wallet_id: string;
+  network: string;
+  asset: string;
+  recipient: string;
+  amount: string;
+  idempotency_key: string;
+};
+
+export type TransactionResult = {
+  id: string;
+};
+
+export const apiClient = {
+  async login(email: string, password: string): Promise<string> {
+    const response = await fetch(`${API_URL}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+
+    const data = await response.json();
+    return data.session;
+  },
+
+  async register(email: string, password: string): Promise<{ session: string }> {
+    const response = await fetch(`${API_URL}/auth/register`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    if (!response.ok) {
+      throw new Error(await response.text());
+    }
+
+    return response.json();
+  },
+
+  async getCurrentUser(token: string): Promise<User> {
+    const response = await fetch(`${API_URL}/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch user');
+    }
+
+    return response.json();
+  },
+
+  async getWallets(token: string): Promise<Wallet[]> {
+    const response = await fetch(`${API_URL}/wallets`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch wallets');
+    }
+
+    return response.json();
+  },
+
+  async getWalletBalances(token: string, walletId: string): Promise<Balance[]> {
+    const response = await fetch(`${API_URL}/wallets/${walletId}/balances`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch balances');
+    }
+
+    return response.json();
+  },
+
+  async createWallet(token: string, data: CreateWalletRequest): Promise<Wallet> {
+    const response = await fetch(`${API_URL}/wallets`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to create wallet');
+    }
+
+    return response.json();
+  },
+
+  async createTransaction(token: string, data: CreateTransactionRequest): Promise<TransactionResult> {
+    const response = await fetch(`${API_URL}/transactions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(data),
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to create transaction');
+    }
+
+    return response.json();
+  },
+};
