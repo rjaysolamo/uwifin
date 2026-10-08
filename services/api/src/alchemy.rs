@@ -1,117 +1,33 @@
-use anyhow::Result;
-use reqwest::Client;
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AlchemyConfig {
-    pub api_key: String,
-    pub network: String,
-    pub policy_id: String,
+use serde_json::{json, Value};
+use crate::{error::ApiError, state::AppState, wallet_validation::{validate_wallet_address, CHAIN_ID, USDC}};
+async fn rpc(state: &AppState, method: &str, params: Value) -> Result<Value, ApiError> {
+    let url = state.config.alchemy_rpc_url.as_ref().ok_or_else(|| ApiError::new("PROVIDER_NOT_CONFIGURED", "Blockchain balance service is not configured."))?;
+    let response = state.http.post(url).json(&json!({ "jsonrpc": "2.0", "id": 1, "method": method, "params": params }))
+        .send().await.map_err(|_| ApiError::unavailable())?;
+    if !response.status().is_success() { return Err(ApiError::unavailable()); }
+    let body: Value = response.json().await.map_err(|_| ApiError::unavailable())?;
+    if body.get("error").is_some() { return Err(ApiError::unavailable()); }
+    body.get("result").cloned().ok_or_else(ApiError::unavailable)
 }
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SendUserOperationRequest {
-    pub sender: String,
-    pub target: String,
-    pub value: String,
-    pub data: String,
-    pub gas_limit: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserOperationResponse {
-    pub user_operation_hash: String,
-    pub status: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReceiptResponse {
-    pub status: String,
-    pub transaction_hash: Option<String>,
-    pub block_number: Option<String>,
-}
-
-pub struct AlchemyClient {
-    client: Client,
-    config: AlchemyConfig,
-}
-
-impl AlchemyClient {
-    pub fn new(api_key: &str, network: &str, policy_id: &str) -> Self {
-        Self {
-            client: Client::new(),
-            config: AlchemyConfig {
-                api_key: api_key.to_string(),
-                network: network.to_string(),
-                policy_id: policy_id.to_string(),
-            },
-        }
+pub async fn usdc_balance(state: &AppState, address: &str) -> Result<u128, ApiError> {
+    let address = validate_wallet_address(address)?;
+    if rpc(state, "eth_chainId", json!([])).await?.as_str() != Some(CHAIN_ID) {
+        return Err(ApiError::new("UNSUPPORTED_NETWORK", "The configured blockchain provider is on an unsupported network."));
     }
-
-    pub fn base_url(&self) -> String {
-        format!(
-            "https://{}.g.alchemy.com/v2/{}",
-            self.config.network, self.config.api_key
-        )
-    }
-
-    pub async fn send_user_operation(&self, payload: &SendUserOperationRequest) -> Result<UserOperationResponse> {
-        let url = format!("{}/v2/{}", self.base_url(), self.config.api_key);
-
-        let resp = self
-            .client
-            .post(&url)
-            .json(&serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": "eth_sendUserOperation",
-                "params": [
-                    {
-                        "sender": payload.sender,
-                        "target": payload.target,
-                        "value": payload.value,
-                        "data": payload.data,
-                        "gasLimit": payload.gas_limit.clone().unwrap_or_else(|| "0x0".to_string())
-                    },
-                    self.config.policy_id
-                ],
-                "id": 1
-            }))
-            .send()
-            .await?;
-
-        let body = resp.json::<serde_json::Value>().await?;
-
-        Ok(UserOperationResponse {
-            user_operation_hash: body["result"]
-                .as_str()
-                .unwrap_or("unknown")
-                .to_string(),
-            status: "submitted".to_string(),
-        })
-    }
-
-    pub async fn get_transaction_receipt(&self, hash: &str) -> Result<ReceiptResponse> {
-        let url = format!("{}/v2/{}", self.base_url(), self.config.api_key);
-
-        let resp = self
-            .client
-            .post(&url)
-            .json(&serde_json::json!({
-                "jsonrpc": "2.0",
-                "method": "eth_getTransactionReceipt",
-                "params": [hash],
-                "id": 1
-            }))
-            .send()
-            .await?;
-
-        let body = resp.json::<serde_json::Value>().await?;
-        let result = body.get("result").cloned().unwrap_or(serde_json::Value::Null);
-
-        Ok(ReceiptResponse {
-            status: if result.is_null() { "pending".to_string() } else { "confirmed".to_string() },
-            transaction_hash: result.get("transactionHash").and_then(|v| v.as_str()).map(|s| s.to_string()),
-            block_number: result.get("blockNumber").and_then(|v| v.as_str()).map(|s| s.to_string()),
-        })
+    // balanceOf(address), fixed token and selector. Callers cannot supply calldata.
+    let data = format!("0x70a08231{:0>64}", &address[2..]);
+    let result = rpc(state, "eth_call", json!([{ "to": USDC, "data": data }, "latest"])).await?;
+    let encoded = result.as_str().and_then(|s| s.strip_prefix("0x")).ok_or_else(ApiError::unavailable)?;
+    u128::from_str_radix(encoded, 16).map_err(|_| ApiError::unavailable())
+}
+#[derive(Debug, PartialEq)]
+pub enum ReceiptState { Pending, Confirmed, Failed }
+/// A receipt's execution status, not HTTP status, determines settlement.
+pub fn receipt_state(value: &Value) -> Result<ReceiptState, ApiError> {
+    if value.is_null() { return Ok(ReceiptState::Pending); }
+    match value.get("status").and_then(Value::as_str) {
+        Some("0x1") if value.get("transactionHash").and_then(Value::as_str).is_some_and(|hash| hash.len() == 66 && hash.starts_with("0x") && hash[2..].bytes().all(|c| c.is_ascii_hexdigit())) => Ok(ReceiptState::Confirmed),
+        Some("0x0") => Ok(ReceiptState::Failed),
+        _ => Err(ApiError::unavailable()),
     }
 }

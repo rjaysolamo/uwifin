@@ -12,6 +12,9 @@
     "lint:web": "pnpm --dir apps/web lint",
     "check:api": "cargo check --manifest-path services/api/Cargo.toml",
     "docker:up": "docker compose up -d",
-    "docker:down": "docker compose down"
-  }
+    "docker:down": "docker compose down",
+    "build:web": "pnpm --dir apps/web build",
+    "test:web": "pnpm --dir apps/web test"
+  },
+  "packageManager": "pnpm@10.34.5"
 }
