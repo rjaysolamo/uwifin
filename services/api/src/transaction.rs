@@ -23,7 +23,7 @@ impl TransactionStatus {
 pub struct CreateTransactionRequest { pub wallet_id: String, pub network: String, pub asset: String, pub recipient: String, pub amount: String }
 #[derive(Serialize, sqlx::FromRow)]
 pub(crate) struct TransactionRecord {
-    id: String, status: String, tx_hash: Option<String>, sender: String, recipient: String,
+    id: String, kind: String, status: String, tx_hash: Option<String>, user_operation_hash: Option<String>, gas_used: Option<i64>, gas_price: Option<i64>, error_code: Option<String>, sender: String, recipient: String,
     amount_atomic: i64, network: String, created_at: chrono::DateTime<chrono::Utc>,
     confirmed_at: Option<chrono::DateTime<chrono::Utc>>, request_fingerprint: Option<String>,
     wallet_id: String, user_id: String, call_id: Option<String>,
@@ -34,14 +34,16 @@ pub(crate) struct TransactionRecord {
 pub(crate) fn record_json(record: &TransactionRecord) -> serde_json::Value {
     serde_json::json!({
         "id": record.id, "status": record.status.to_ascii_lowercase(), "tx_hash": record.tx_hash,
-        "sender": record.sender, "recipient": record.recipient, "address": record.recipient,
+        "sender": record.sender, "recipient": record.recipient, "address": if record.kind == "received" { &record.sender } else { &record.recipient },
         "asset": "USDC", "amount": format_amount(record.amount_atomic as u128), "amount_atomic": record.amount_atomic.to_string(),
         "network": record.network, "created_at": record.created_at, "confirmed_at": record.confirmed_at,
-        "kind": "sent", "name": "Wallet transfer", "call_id": record.call_id
+        "user_operation_hash": record.user_operation_hash, "gas_used": record.gas_used.map(|v| v.to_string()), "gas_price": record.gas_price.map(|v| v.to_string()), "error_code": record.error_code,
+        "kind": record.kind, "name": "Wallet transfer", "call_id": record.call_id
     })
 }
 pub async fn create_transaction(State(state): State<AppState>, headers: HeaderMap, Json(mut req): Json<CreateTransactionRequest>) -> Result<(StatusCode, Json<serde_json::Value>), ApiError> {
     let user = authorize(&state, &headers).await?;
+    crate::admin::require_enabled(&state).await?;
     state.limits.check(format!("transfer:{}", user.id), 10)?;
     let key = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).filter(|key| (8..=128).contains(&key.len()) && key.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_'))
         .ok_or_else(|| ApiError::new("INVALID_REQUEST", "A valid Idempotency-Key header is required."))?;
@@ -84,15 +86,19 @@ pub async fn get_transaction(State(state): State<AppState>, headers: HeaderMap, 
     Ok(Json(record_json(&record)))
 }
 #[derive(Deserialize)]
-pub struct TransactionQuery { page: Option<u32>, limit: Option<u32>, status: Option<String> }
+pub struct TransactionQuery { page: Option<u32>, limit: Option<u32>, status: Option<String>, kind: Option<String>, q: Option<String> }
 pub async fn list_transactions(State(state): State<AppState>, headers: HeaderMap, Query(query): Query<TransactionQuery>) -> Result<Json<serde_json::Value>, ApiError> {
     let user = authorize(&state, &headers).await?;
     let page = query.page.unwrap_or(1); let limit = query.limit.unwrap_or(20);
     if page == 0 || page > 100_000 || limit == 0 || limit > 100 { return Err(ApiError::new("INVALID_REQUEST", "Use page >= 1 and limit between 1 and 100.")); }
     let status = query.status.map(|status| status.to_ascii_uppercase());
     if status.as_ref().is_some_and(|status| !["CREATED", "VALIDATING", "READY", "SUBMITTED", "PENDING", "CONFIRMED", "FAILED"].contains(&status.as_str())) { return Err(ApiError::new("INVALID_REQUEST", "Unsupported transaction status.")); }
-    let records = sqlx::query_as::<_, TransactionRecord>("SELECT * FROM transactions WHERE user_id = ? AND (? IS NULL OR status = ?) ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?")
-        .bind(user.id).bind(&status).bind(&status).bind(limit).bind((page - 1) * limit).fetch_all(&state.pool).await?;
+    let kind = query.kind.filter(|value| value != "all");
+    if kind.as_ref().is_some_and(|value| !["sent","received"].contains(&value.as_str())) { return Err(ApiError::new("INVALID_REQUEST","Invalid transfer type.")); }
+    let search = query.q.unwrap_or_default();
+    if search.len()>128 { return Err(ApiError::new("INVALID_REQUEST","Search is too long.")); }
+    let records = sqlx::query_as::<_, TransactionRecord>("SELECT * FROM transactions WHERE user_id = ? AND (? IS NULL OR status = ?) AND (? IS NULL OR kind = ?) AND (? = '' OR LOCATE(?, CONCAT(id,' ',sender,' ',recipient,' ',COALESCE(tx_hash,''),' USDC Wallet transfer')) > 0) ORDER BY created_at DESC,id DESC LIMIT ? OFFSET ?")
+        .bind(user.id).bind(&status).bind(&status).bind(&kind).bind(&kind).bind(&search).bind(&search).bind(limit).bind((page-1)*limit).fetch_all(&state.pool).await?;
     Ok(Json(serde_json::json!({ "transactions": records.iter().map(record_json).collect::<Vec<_>>(), "page": page, "limit": limit })))
 }
 
@@ -118,6 +124,7 @@ async fn load_record(state: &AppState, id: &str, user: &str) -> Result<Transacti
         .ok_or_else(|| ApiError::new("NOT_FOUND", "Transaction not found."))
 }
 async fn prepare(state: &AppState, user: &str, id: &str) -> Result<serde_json::Value, ApiError> {
+    crate::admin::require_enabled(state).await?;
     state.limits.check(format!("prepare:{user}"), 10)?;
     let policy = state.config.alchemy_policy_id.as_ref().ok_or_else(|| ApiError::new("PROVIDER_NOT_CONFIGURED", "Sponsored transfers are temporarily unavailable."))?;
     let mut tx = state.pool.begin().await?;
@@ -129,7 +136,7 @@ async fn prepare(state: &AppState, user: &str, id: &str) -> Result<serde_json::V
     if !["CREATED", "READY"].contains(&record.status.as_str()) { return Err(ApiError::new("CONFLICT", "This transfer has already been submitted. Check its status.")); }
     let wallet = owned_wallet(state, user, &record.wallet_id).await?;
     if crate::alchemy::usdc_balance(state, &wallet.address).await? < record.amount_atomic as u128 { return Err(ApiError::new("INSUFFICIENT_BALANCE", "Insufficient USDC balance.")); }
-    let spent: String = sqlx::query_scalar("SELECT CAST(COALESCE(SUM(amount_atomic), 0) AS CHAR) FROM transactions WHERE user_id = ? AND status IN ('SUBMITTED','PENDING','CONFIRMED') AND created_at > DATE_SUB(NOW(), INTERVAL 1 DAY)")
+    let spent: String = sqlx::query_scalar("SELECT CAST(COALESCE(SUM(amount_atomic), 0) AS CHAR) FROM transactions WHERE user_id = ? AND kind = 'sent' AND status IN ('SUBMITTED','PENDING','CONFIRMED') AND created_at > DATE_SUB(NOW(), INTERVAL 1 DAY)")
         .bind(user).fetch_one(&mut *tx).await?;
     let spent = spent.parse::<i128>().map_err(|_| ApiError::unavailable())?;
     if spent + record.amount_atomic as i128 > state.config.transfer_limit_atomic as i128 * 5 { return Err(ApiError::new("RATE_LIMITED", "Your daily transfer limit has been reached.")); }
@@ -172,6 +179,7 @@ pub fn attach_signature(prepared: &serde_json::Value, submitted: &serde_json::Va
     Ok(serde_json::json!({ "type": prepared["type"], "data": prepared["data"], "chainId": prepared["chainId"], "signature": signature }))
 }
 async fn submit(state: &AppState, user: &str, id: &str, params: &serde_json::Value) -> Result<serde_json::Value, ApiError> {
+    crate::admin::require_enabled(state).await?;
     state.limits.check(format!("submit:{user}"), 10)?;
     let mut tx = state.pool.begin().await?;
     let record = sqlx::query_as::<_, TransactionRecord>("SELECT * FROM transactions WHERE id = ? AND user_id = ? FOR UPDATE").bind(id).bind(user).fetch_optional(&mut *tx).await?
@@ -228,6 +236,11 @@ pub async fn reconcile_one(state: &AppState, id: &str, user: &str) -> Result<(),
     if current < block || current - block + 1 < state.config.confirmations { return Ok(()); }
     let canonical = crate::alchemy::chain_rpc(state, "eth_getBlockByNumber", serde_json::json!([receipt["blockNumber"], false])).await?;
     if canonical["hash"] != receipt["blockHash"] || canonical["hash"].is_null() { return Ok(()); }
+    let operation_hash = receipt["logs"].as_array().and_then(|logs| logs.iter().find(|log| {
+        log["address"].as_str().is_some_and(|address| ["0x0000000071727de22e5e9d8baf0edac6f37da032","0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789"].iter().any(|entry|address.eq_ignore_ascii_case(entry))) &&
+        log["topics"][0].as_str() == Some("0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f") &&
+        log["topics"][2].as_str().is_some_and(|topic| topic.eq_ignore_ascii_case(&format!("0x{:0>64}", &record.sender[2..])))
+    })).and_then(|log| log["topics"][1].as_str()).filter(|hash| crate::alchemy::valid_hash(hash));
     let result = match crate::alchemy::receipt_state(&receipt)? {
         crate::alchemy::ReceiptState::Failed => "FAILED",
         crate::alchemy::ReceiptState::Confirmed if crate::alchemy::contains_transfer(&receipt, &state.config.usdc_address, &record.sender, &record.recipient, record.amount_atomic) => "CONFIRMED",
@@ -235,8 +248,8 @@ pub async fn reconcile_one(state: &AppState, id: &str, user: &str) -> Result<(),
         _ => return Ok(()),
     };
     let mut tx = state.pool.begin().await?;
-    sqlx::query("UPDATE transactions SET status = ?, tx_hash = ?, gas_used = ?, gas_price = ?, confirmed_at = CASE WHEN ? = 'CONFIRMED' THEN NOW() ELSE NULL END, signed_call = NULL, updated_at = NOW() WHERE id = ? AND status IN ('SUBMITTED','PENDING')")
-        .bind(result).bind(hash).bind(crate::alchemy::hex_u64(&receipt["gasUsed"]).and_then(|v| i64::try_from(v).ok())).bind(crate::alchemy::hex_u64(&receipt["effectiveGasPrice"]).and_then(|v| i64::try_from(v).ok())).bind(result).bind(id).execute(&mut *tx).await?;
+    sqlx::query("UPDATE transactions SET status = ?, tx_hash = ?, user_operation_hash = ?, gas_used = ?, gas_price = ?, confirmed_at = CASE WHEN ? = 'CONFIRMED' THEN NOW() ELSE NULL END, signed_call = NULL, error_code = CASE WHEN ? = 'FAILED' THEN 'TRANSACTION_FAILED' ELSE NULL END, updated_at = NOW() WHERE id = ? AND status IN ('SUBMITTED','PENDING')")
+        .bind(result).bind(hash).bind(operation_hash).bind(crate::alchemy::hex_u64(&receipt["gasUsed"]).and_then(|v| i64::try_from(v).ok())).bind(crate::alchemy::hex_u64(&receipt["effectiveGasPrice"]).and_then(|v| i64::try_from(v).ok())).bind(result).bind(result).bind(id).execute(&mut *tx).await?;
     audit(&mut tx, user, if result == "CONFIRMED" { "transaction.confirmed" } else { "transaction.failed" }).await?;
     tx.commit().await?;
     Ok(())

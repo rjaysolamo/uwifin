@@ -1,7 +1,7 @@
 use uwifin_api::{app, config::Config, db, state::AppState};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    dotenv::dotenv().ok();
+    dotenvy::dotenv().ok();
     tracing_subscriber::fmt().json().init();
     let config = Config::from_env()?;
     let pool = sqlx::mysql::MySqlPoolOptions::new().max_connections(10).acquire_timeout(std::time::Duration::from_secs(5)).connect(&config.database_url).await?;
@@ -14,6 +14,7 @@ async fn main() -> anyhow::Result<()> {
         loop {
             interval.tick().await;
             if let Err(error) = uwifin_api::transaction::reconcile_pending(&worker_state).await { tracing::warn!(error_code = error.error.code, "Transaction reconciliation unavailable"); }
+            if let Err(error) = uwifin_api::deposits::reconcile(&worker_state).await { tracing::warn!(error_code = error.error.code, "Deposit reconciliation unavailable"); }
             if let Err(error) = uwifin_api::payments::reconcile_pending(&worker_state).await { tracing::warn!(error_code = error.error.code, "Payment reconciliation unavailable"); }
         }
     });

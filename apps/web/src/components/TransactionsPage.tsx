@@ -1,27 +1,44 @@
 'use client';
-import { useState } from 'react';
-import { ArrowDownLeft, ArrowUpRight, ChevronDown, ChevronLeft, ChevronRight, Download, Search, X } from 'lucide-react';
-import { useFinance } from '@/contexts/FinanceContext';
+import { useEffect, useState } from 'react';
+import { request } from '@/lib/api';
 import { type Transfer } from '@/lib/transfers';
-import { decimalAmount, money } from '@/lib/money';
+import { decimalAmount } from '@/lib/money';
 import { TransactionTable } from './UI';
 import { TransferDetails } from './TransferDetails';
 export function TransactionsPage({ initialQuery = '' }: { initialQuery?: string }) {
-  const { transfers } = useFinance();
   const [query, setQuery] = useState(initialQuery);
-  const [status, setStatus] = useState('all');
-  const [kind, setKind] = useState('all');
+  const [status, setStatus] = useState('');
+  const [kind, setKind] = useState('');
   const [page, setPage] = useState(1);
+  const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [detail, setDetail] = useState<Transfer | null>(null);
-  const filtered = transfers.filter((item) => (status === 'all' || item.status === status) && (kind === 'all' || item.kind === kind) && `${item.name} ${item.address} ${item.id} USDC`.toLowerCase().includes(query.toLowerCase()));
-  const pages = Math.max(1, Math.ceil(filtered.length / 8));
-  const safePage = Math.min(page, pages);
-  const sum = (type: string) => transfers.filter((item) => item.kind === type && item.status === 'confirmed').reduce((total, item) => total + BigInt(item.amount_atomic), 0n);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    const controller = new AbortController();
+    const load = async () => {
+      setLoading(true); setError('');
+      try {
+        const params = new URLSearchParams({ page: String(page), limit: '20', q: query });
+        if (status) params.set('status',status); if (kind) params.set('kind',kind);
+        const result = await request<{ transactions: Transfer[] }>(`/transactions?${params}`,{signal:controller.signal});
+        if (!controller.signal.aborted) setTransfers(result.transactions);
+      } catch (err) { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Unable to load history.'); }
+      finally { if (!controller.signal.aborted) setLoading(false); }
+    };
+    const debounce = setTimeout(() => void load(), 200);
+    const timer = setInterval(() => { if (!document.hidden) void load(); },15_000);
+    return () => { controller.abort(); clearTimeout(debounce); clearInterval(timer); };
+  },[page,query,status,kind]);
   const exportCsv = () => {
     const escape = (value: string) => `"${value.replace(/^[=+\-@\t\r]/, "' $&").replaceAll('"', '""')}"`;
-    const rows = [['ID', 'Type', 'Recipient', 'Wallet', 'Amount USDC', 'Status', 'Date', 'Network'], ...filtered.map((item) => [item.id, item.kind, item.name, item.address, decimalAmount(item.amount_atomic), item.status, item.created_at, item.network])];
-    const url = URL.createObjectURL(new Blob([rows.map((row) => row.map(escape).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8;' }));
-    const element = document.createElement('a'); element.href = url; element.download = 'uwifin-transactions.csv'; element.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    const rows = [['ID','Type','Address','Amount USDC','Status','Date','Network','Hash'],...transfers.map(t => [t.id,t.kind,t.address,decimalAmount(t.amount_atomic),t.status,t.created_at,t.network,t.tx_hash || ''])];
+    const url = URL.createObjectURL(new Blob([rows.map(row => row.map(escape).join(',')).join('\r\n')],{type:'text/csv;charset=utf-8;'}));
+    const link = document.createElement('a'); link.href=url; link.download=`uwifin-transactions-page-${page}.csv`; link.click(); setTimeout(() => URL.revokeObjectURL(url),1000);
   };
-  return <><section className="page-heading"><div><span className="eyebrow">EVERY LITTLE MOMENT, TRACKED</span><h1>Transactions<span className="greeting-dot">.</span></h1><p>Latest 100 UwiFin transfers. Incoming deposits are reflected in your balance; they are not indexed here.</p></div><button className="button secondary" onClick={exportCsv} disabled={!filtered.length}><Download size={16}/>Export CSV</button></section><div className="transaction-summary"><section className="card"><span className="transaction-icon received"><ArrowDownLeft size={20}/></span><div><span>Received in this view</span><strong>{money(sum('received'))}</strong><small>Confirmed transfers</small></div></section><section className="card"><span className="transaction-icon sent"><ArrowUpRight size={20}/></span><div><span>Sent in this view</span><strong>{money(sum('sent'))}</strong><small>Confirmed transfers</small></div></section><section className="card"><span className="pending-summary-dot"/><div><span>In progress</span><strong>{transfers.filter((item) => item.status === 'pending' || item.status === 'created').length} <span>transfers</span></strong><small>Awaiting confirmation</small></div></section></div><section className="card all-transactions"><div className="transaction-controls"><div className="filter-tabs" aria-label="Transaction type">{[{ value: 'all', label: 'All transactions' }, { value: 'sent', label: 'Sent' }, { value: 'received', label: 'Received' }, { value: 'bought', label: 'Added' }].map((item) => <button key={item.value} onClick={() => { setKind(item.value); setPage(1); }} className={kind === item.value ? 'active' : ''} aria-pressed={kind === item.value}>{item.label}</button>)}</div><div className="transaction-filter-row"><div className="search-field"><Search size={16}/><input aria-label="Search transaction history" placeholder="Search name or address…" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1); }}/>{query && <button className="icon-button" onClick={() => setQuery('')} aria-label="Clear search"><X size={14}/></button>}</div><div className="select-wrap status-select"><select aria-label="Filter by status" value={status} onChange={(event) => { setStatus(event.target.value); setPage(1); }}><option value="all">All statuses</option><option value="confirmed">Confirmed</option><option value="pending">Pending</option><option value="failed">Failed</option><option value="created">Created</option><option value="ready">Ready to sign</option><option value="submitted">Submitted</option><option value="validating">Validating</option></select><ChevronDown size={14}/></div></div></div><TransactionTable transfers={filtered.slice((safePage - 1) * 8, safePage * 8)} onSelect={setDetail}/><div className="table-pagination"><span>{filtered.length ? `${(safePage - 1) * 8 + 1}–${Math.min(safePage * 8, filtered.length)} of ${filtered.length} transactions` : 'No matching transactions'}</span><div><button className="icon-button" aria-label="Previous page" disabled={safePage === 1} onClick={() => setPage(safePage - 1)}><ChevronLeft size={17}/></button><span>{safePage} / {pages}</span><button className="icon-button" aria-label="Next page" disabled={safePage === pages} onClick={() => setPage(safePage + 1)}><ChevronRight size={17}/></button></div></div></section>{detail && <TransferDetails transfer={detail} onClose={() => setDetail(null)}/>}</>;
+  return <><section className="page-heading"><div><h1>Transactions.</h1><p>Outgoing transfers and confirmed incoming deposits. New deposits appear after blockchain verification.</p></div><button className="button secondary" disabled={loading || !!error || !transfers.length} onClick={exportCsv}>Export this page</button></section>
+    <section className="card all-transactions"><div className="transaction-controls"><label>Search<input className="input" value={query} maxLength={128} onChange={e => {setQuery(e.target.value);setPage(1);}} placeholder="Address or transaction ID"/></label><label>Type<select className="input" value={kind} onChange={e => {setKind(e.target.value);setPage(1);}}><option value="">All</option><option value="sent">Sent</option><option value="received">Received</option></select></label><label>Status<select className="input" value={status} onChange={e => {setStatus(e.target.value);setPage(1);}}><option value="">All</option>{['created','validating','ready','submitted','pending','confirmed','failed'].map(value => <option key={value}>{value}</option>)}</select></label></div>
+    {error && <p role="alert">{error}</p>}{loading && <p role="status">Loading history…</p>}{!error && <TransactionTable transfers={transfers} onSelect={setDetail}/>}
+    <div className="table-pagination"><button className="button secondary" disabled={loading || page===1} onClick={() => setPage(page-1)}>Previous</button><span>Page {page}</span><button className="button secondary" disabled={loading || !!error || transfers.length<20} onClick={() => setPage(page+1)}>Next</button></div></section>
+    {detail && <TransferDetails transfer={transfers.find(t=>t.id===detail.id) || detail} onClose={() => setDetail(null)}/>}</>;
 }

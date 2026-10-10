@@ -1,7 +1,9 @@
+pub mod admin;
 pub mod alchemy;
 pub mod auth;
 pub mod config;
 pub mod db;
+pub mod deposits;
 pub mod error;
 pub mod payments;
 pub mod security;
@@ -15,9 +17,13 @@ use state::AppState;
 pub fn app(state: AppState) -> Router {
     let api = Router::new()
         .route("/capabilities", get(capabilities))
+        .route("/admin/:section", get(admin::list))
+        .route("/admin/:section/:id", axum::routing::patch(admin::toggle))
         .route("/auth/register", post(auth::register))
         .route("/auth/login", post(auth::login))
         .route("/auth/logout", post(auth::logout))
+        .route("/auth/password", post(auth::change_password))
+        .route("/auth/revoke-sessions", post(auth::revoke_other_sessions))
         .route("/auth/me", get(auth::me))
         .route("/users/me", get(auth::me).patch(auth::update_profile))
         .route("/wallets", get(wallet::list_wallets).post(wallet::create_wallet))

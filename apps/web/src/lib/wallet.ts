@@ -1,10 +1,16 @@
 import { createWalletClient, custom, getAddress, type EIP1193Provider, type Address, type WalletClient, type Transport, type Chain, type Account } from 'viem';
 import { base, baseSepolia } from 'viem/chains';
 import { alchemyWalletTransport, createSmartWalletClient, type SignSignatureRequestParams } from '@alchemy/wallet-apis';
+import { emailWalletAccount } from './email-wallet';
 import { request, type Wallet, type Capabilities } from './api';
 import type { Transfer } from './transfers';
 
-export async function browserSigner(chainId: number, expected?: string): Promise<WalletClient<Transport, Chain, Account>> {
+export async function browserSigner(chainId: number, expected?: string, useEmail = true): Promise<WalletClient<Transport, Chain, Account>> {
+  const embedded = useEmail ? emailWalletAccount() : null;
+  if (embedded && (!expected || embedded.address.toLowerCase() === expected.toLowerCase())) {
+    if (chainId !== base.id && chainId !== baseSepolia.id) throw new Error('Unsupported wallet network.');
+    return createWalletClient({ account: embedded, chain: chainId === base.id ? base : baseSepolia, transport: custom({ request: async () => { throw new Error('Only signing is available here.'); } }) });
+  }
   const provider = (window as Window & { ethereum?: EIP1193Provider }).ethereum;
   if (!provider) throw new Error('Open UwiFin in a wallet browser or install an Ethereum wallet extension to connect.');
   if (chainId !== base.id && chainId !== baseSepolia.id) throw new Error('Unsupported wallet network.');
@@ -15,9 +21,9 @@ export async function browserSigner(chainId: number, expected?: string): Promise
   if (await client.getChainId() !== chainId) await client.switchChain({ id: chainId });
   return createWalletClient({ account: getAddress(address), transport: custom(provider), chain });
 }
-export async function connectSmartWallet(capabilities: Capabilities): Promise<Wallet> {
+export async function connectSmartWallet(capabilities: Capabilities, mode: 'external' | 'email' = 'external'): Promise<Wallet> {
   if (!capabilities.wallet_enabled) throw new Error('Wallet connection is temporarily unavailable.');
-  const signer = await browserSigner(capabilities.chain_id);
+  const signer = await browserSigner(capabilities.chain_id, undefined, mode === 'email');
   const challenge = await request<{ id: string; message: string }>('/wallets/challenge', { method: 'POST', body: JSON.stringify({ signer_address: signer.account.address }) });
   const signature = await signer.signMessage({ message: challenge.message });
   return request<Wallet>('/wallets', { method: 'POST', body: JSON.stringify({ challenge_id: challenge.id, signature }) });

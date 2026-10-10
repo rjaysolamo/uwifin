@@ -9,5 +9,5 @@ export const metadata: Metadata = {
   icons: { icon: '/icon.svg' },
 };
 export default function RootLayout({ children }: { children: React.ReactNode }) {
-  return <html lang="en"><body><AuthProvider><FinanceProvider>{children}</FinanceProvider></AuthProvider></body></html>;
+  return <html lang="en"><body><div id="email-wallet-frame" hidden/><AuthProvider><FinanceProvider>{children}</FinanceProvider></AuthProvider></body></html>;
 }

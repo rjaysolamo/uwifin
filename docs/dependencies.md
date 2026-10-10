@@ -15,3 +15,13 @@ Exact JavaScript versions are pinned in apps/web/package.json and pnpm-lock.yaml
 | Argon2 / HMAC / SHA2 | Cargo.lock | Password hashes, webhook signatures, session hashes | RustCrypto | Standard library implementations; never log keys or tokens |
 
 Official provider docs and installed SDK source were inspected for request/response shapes and signing behavior. `pnpm audit --prod --json` reported zero known advisories in this sandbox on 2026-10-08. This is a point-in-time registry result, not a security certification. A Rust advisory scan and independent security review remain production gates. No custom Solidity contract is needed for direct USDC transfers.
+
+## Email wallet onboarding
+
+`@account-kit/signer` 4.88.5 (Alchemy's MIT-licensed aa-sdk repository) provides provider-managed email OTP signing. Only its signer is used; transfer orchestration remains on Wallet APIs 5.3.0. viem 2.57.4 satisfies its declared peer range. The alternative is requiring an external wallet; implementing a private-key vault is deliberately avoided. This adds the provider SDK's transitive dependencies (including unused Solana support); no separate multi-chain feature is enabled. Provider origin restrictions and OTP configuration are required. Browser use is dynamically loaded only when onboarding starts. Re-run `pnpm audit --prod` with every release and inspect SDK maintenance/advisories.
+
+The October 2026 registry scan exposed five advisories through signer transitive packages. Root pnpm overrides pin `js-cookie` 3.0.7 and `jayson` 5.0.0; the latter removes vulnerable stream-json/uuid dependencies. Its browser JSON-RPC request/callback interface was inspected against the prior version. Provider fixture signing and production build are required compatibility checks for these overrides; the app does not expose Jayson's server/stream APIs.
+
+## Rust audit findings (2026-10-10)
+
+`cargo audit` identifies RUSTSEC-2023-0071 in transitive `rsa` 0.9.10 via SQLx MySQL, with no patched release listed. Inspected SQLx 0.8.6 `connection/auth.rs` imports `RsaPublicKey` and uses public-key encryption for database authentication; UwiFin does not use RSA private-key decryption. This bounds the observed exposure but does not turn the advisory scan into a pass. Require a trusted/TLS database connection in production and monitor the upstream fix. `derivative` and `paste` also have transitive unmaintained notices. The direct unmaintained `dotenv` dependency was replaced with `dotenvy` 0.15.7 (MIT, dotenv-rs/dotenvy; already present through SQLx). These findings must remain visible in release review; no blanket audit suppression is added.

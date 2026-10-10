@@ -9,7 +9,7 @@ import { connectSmartWallet, signTransfer } from '@/lib/wallet';
 type FinanceState = {
   balance: string; balanceKnown: boolean; address: string; wallets: Wallet[]; wallet: Wallet | null;
   capabilities: Capabilities | null; networkLabel: string; transfers: Transfer[]; loading: boolean; error: string;
-  selectWallet: (id: string) => void; connect: () => Promise<void>;
+  selectWallet: (id: string) => void; connect: (mode?: 'external' | 'email') => Promise<void>;
   send: (recipient: string, amount: string, key: string) => Promise<Transfer>;
   refresh: () => Promise<void>;
 };
@@ -62,11 +62,11 @@ function AccountFinance({ signedIn, children }: { signedIn: boolean; children: R
     const timer = setInterval(() => { if (!document.hidden && !lock.current) void refresh(); }, 15_000);
     return () => { clearInterval(timer); fetchController.current?.abort(); };
   }, [refresh]);
-  const connect = async () => {
+  const connect = async (mode: 'external' | 'email' = 'external') => {
     if (!capabilities || !signedIn) throw new Error('Sign in and wait for wallet services to load.');
     if (lock.current) throw new Error('A wallet action is already in progress.');
     lock.current = true;
-    try { const created = await connectSmartWallet(capabilities); if (active.current) { setWallets(current => [created, ...current.filter(item => item.id !== created.id)]); setSelected(created.id); } }
+    try { const created = await connectSmartWallet(capabilities, mode); if (active.current) { setWallets(current => [created, ...current.filter(item => item.id !== created.id)]); setSelected(created.id); } }
     finally { lock.current = false; }
   };
   const send = async (recipient: string, amount: string, key: string): Promise<Transfer> => {
