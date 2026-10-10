@@ -68,6 +68,9 @@ The existing lint, type-check, build, and test commands remain separate checks; 
 
 ## Notes
 
+See [CI/CD](docs/ci-cd.md) for automated checks, weekly dependency updates,
+required GitHub branch protections, and deployment status.
+
 This repository intentionally keeps the initial architecture simple and production-minded, with no unnecessary service sprawl or custom blockchain infrastructure in the MVP.
 
 ## Real wallet setup
