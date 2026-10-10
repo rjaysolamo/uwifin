@@ -4247,3 +4247,352 @@ svg {
   max-width: 100%;
   margin: 8px auto;
 }
+
+.recent-transactions {
+  margin-top: 24px;
+}
+.recent-transactions > .card-heading {
+  padding: 16px 20px;
+}
+
+/* Keep intrinsic content (addresses, amounts and provider errors) inside its track. */
+.main-content,
+.auth-form-content,
+.modal {
+  overflow-wrap: anywhere;
+}
+.dashboard-grid > *,
+.wallet-layout > *,
+.flow-layout > *,
+.auth-page > * {
+  min-width: 0;
+}
+.sidebar {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.sidebar-brand,
+.sidebar nav,
+.sidebar-bottom {
+  flex-shrink: 0;
+}
+.wallet-address-line {
+  flex-wrap: wrap;
+}
+.wallet-address-line code,
+.wallet-main-card code {
+  overflow-wrap: anywhere;
+}
+.wallet-main-card .card-heading h2 {
+  font-size: 20px;
+  letter-spacing: -0.4px;
+}
+.wallet-main-actions,
+.receive-actions,
+.modal-actions {
+  flex-wrap: wrap;
+}
+.password-input:focus-within {
+  outline: 2px solid #578d67;
+  outline-offset: 4px;
+}
+
+@media (max-width: 800px) {
+  .app-shell,
+  .auth-page {
+    min-height: 100dvh;
+  }
+  .topbar {
+    position: relative;
+    height: auto;
+    min-height: 68px;
+    padding-left: max(16px, env(safe-area-inset-left));
+    padding-right: max(16px, env(safe-area-inset-right));
+    padding-top: env(safe-area-inset-top);
+  }
+  .topbar .popover-wrap {
+    position: static;
+  }
+  .topbar .popover {
+    top: calc(100% + 8px);
+    right: max(16px, env(safe-area-inset-right));
+    width: min(310px, calc(100vw - 32px - env(safe-area-inset-left) - env(safe-area-inset-right)));
+    max-height: calc(100dvh - 100px);
+    overflow-y: auto;
+    overflow-wrap: anywhere;
+  }
+  .sidebar {
+    width: min(290px, calc(100vw - 32px));
+    padding-top: max(24px, env(safe-area-inset-top));
+    padding-left: max(18px, env(safe-area-inset-left));
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .sidebar-brand {
+    margin-bottom: 24px;
+  }
+  .sidebar-bottom {
+    padding-top: 24px;
+  }
+  .home-note {
+    display: none;
+  }
+  .main-content {
+    padding-left: max(18px, env(safe-area-inset-left));
+    padding-right: max(18px, env(safe-area-inset-right));
+  }
+  .app-footer {
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+    padding-left: max(18px, env(safe-area-inset-left));
+    padding-right: max(18px, env(safe-area-inset-right));
+  }
+  /* 16px fields avoid automatic input zoom on iOS; actions stay finger sized. */
+  input.input,
+  select.input,
+  .password-input input,
+  .search-field > input {
+    font-size: 16px;
+    min-height: 48px;
+  }
+  .button,
+  .page-heading > .button,
+  .balance-actions .button,
+  .wallet-main-actions .button,
+  .copy-button,
+  .wallet-address-line .copy-button,
+  .receive-actions .button,
+  .text-link,
+  .profile-popover > a,
+  .profile-popover > button,
+  .error-banner button,
+  .faq-card summary {
+    min-height: 44px;
+    font-size: 14px;
+    white-space: normal;
+  }
+  .icon-button,
+  .table-pagination .icon-button,
+  .profile-button {
+    min-width: 44px;
+    min-height: 44px;
+    flex-shrink: 0;
+  }
+  .nav-link {
+    font-size: 15px;
+    min-height: 48px;
+  }
+  .page-heading p,
+  .quick-send > p,
+  .wallet-security p,
+  .receive-card > p,
+  .info-note,
+  .info-note p,
+  .field-error,
+  .faq-card summary,
+  .faq-card details > p,
+  .help-highlights p,
+  .auth-form-content > p,
+  .auth-form-content p.auth-switch,
+  .stacked-form > label,
+  .detail-list > div,
+  .detail-list dd,
+  .detail-address code,
+  .detail-address a,
+  .receive-address,
+  .wallet-address-line code {
+    font-size: 14px;
+  }
+  .auth-back,
+  .auth-switch a {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+    font-size: 14px;
+  }
+  .secure-form-note {
+    font-size: 12px;
+    white-space: normal;
+  }
+  .modal {
+    max-height: calc(100dvh - 32px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
+}
+
+@media (max-width: 640px) {
+  .error-banner {
+    flex-wrap: wrap;
+  }
+  .page-heading {
+    flex-direction: column;
+  }
+  .page-heading > .button {
+    width: 100%;
+  }
+  .heading-right {
+    align-items: flex-start;
+  }
+  .topbar .network-pill {
+    display: none;
+  }
+  .breadcrumb {
+    display: block;
+    font-size: 12px;
+  }
+  .dashboard-grid,
+  .wallet-layout,
+  .flow-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .balance-actions {
+    flex-wrap: wrap;
+  }
+  .balance-actions .button {
+    flex: 1 1 110px;
+  }
+  .balance-value,
+  .wallet-main-card > h2 {
+    font-size: clamp(28px, 9vw, 40px);
+  }
+  .balance-value,
+  .review-amount,
+  .transfer-detail-hero h2 {
+    overflow-wrap: anywhere;
+  }
+  .card-heading {
+    flex-wrap: wrap;
+  }
+  .wallet-main-card,
+  .wallet-security,
+  .flow-card,
+  .receive-card,
+  .settings-card,
+  .wallet-assets,
+  .faq-card {
+    padding: 20px;
+  }
+  .settings-card + .settings-card {
+    margin-top: 18px;
+  }
+  .wallet-main-actions .button,
+  .receive-actions > * {
+    flex: 1 1 100px;
+  }
+  .wallet-asset-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: 16px 0;
+  }
+  .wallet-asset-row strong {
+    font-size: 15px;
+  }
+  .qr-frame {
+    display: block;
+    width: min(100%, 278px);
+    min-width: 0;
+    min-height: 0;
+    padding: 12px;
+  }
+  .qr-frame img {
+    width: 100%;
+  }
+  .table-pagination {
+    gap: 8px;
+    flex-wrap: wrap;
+    font-size: 13px;
+  }
+  .transaction-controls {
+    display: grid;
+    gap: 14px;
+  }
+  .transaction-controls label {
+    min-width: 0;
+  }
+  /* Transaction rows become readable cards; all columns remain available. */
+  .responsive-transactions,
+  .all-transactions .responsive-transactions {
+    display: block;
+    min-width: 0;
+    width: 100%;
+  }
+  .responsive-transactions thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+  .responsive-transactions tbody {
+    display: block;
+  }
+  .responsive-transactions tbody tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px;
+    padding: 16px 18px;
+    border-top: 1px solid var(--line);
+  }
+  .responsive-transactions td,
+  .all-transactions .responsive-transactions td {
+    display: block;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+  }
+  .responsive-transactions td:first-child,
+  .responsive-transactions .date-cell {
+    grid-column: 1 / -1;
+  }
+  .responsive-transactions .transaction-main {
+    width: 100%;
+    min-height: 44px;
+    white-space: normal;
+    text-align: left;
+  }
+  .responsive-transactions .transaction-main > span {
+    min-width: 0;
+  }
+  .responsive-transactions .transaction-main strong {
+    white-space: normal;
+    font-size: 14px;
+  }
+  .responsive-transactions .transaction-main small,
+  .responsive-transactions .date-cell {
+    font-size: 12px;
+  }
+  .responsive-transactions .status-badge {
+    font-size: 12px;
+    white-space: normal;
+  }
+  .responsive-transactions .amount-cell {
+    font-size: 15px;
+    white-space: normal;
+  }
+  .auth-page {
+    grid-template-rows: auto 1fr;
+  }
+  .auth-story {
+    min-height: 0;
+    padding: max(20px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) 20px
+      max(24px, env(safe-area-inset-left));
+  }
+  .auth-form-panel {
+    min-height: 0;
+    padding: 12px max(24px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom))
+      max(24px, env(safe-area-inset-left));
+  }
+  .auth-form-content {
+    padding: 20px 0;
+  }
+  .auth-form-content h2 {
+    font-size: 26px;
+  }
+  .modal {
+    padding: 18px;
+  }
+  .modal-actions > .button {
+    flex: 1 1 120px;
+  }
+  .transfer-detail-hero h2 {
+    font-size: 28px;
+  }
+}

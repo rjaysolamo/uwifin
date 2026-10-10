@@ -1,7 +1,13 @@
-import type { Metadata } from 'next';
+import type { Metadata, Viewport } from 'next';
 import './globals.css';
 import { AuthProvider } from '@/contexts/AuthContext';
 import { FinanceProvider } from '@/contexts/FinanceContext';
+
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
+};
 
 export const metadata: Metadata = {
   title: { default: 'UwiFin — A little closer to home', template: '%s | UwiFin' },
