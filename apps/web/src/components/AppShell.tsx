@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowDownLeft,
   ArrowUpRight,
@@ -40,6 +40,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const router = useRouter();
   const { user, loading, logout } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const sidebar = useRef<HTMLElement>(null);
   const [notifications, setNotifications] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -63,6 +64,42 @@ export function AppShell({ children }: { children: ReactNode }) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, []);
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const previousOverflow = document.body.style.overflow;
+    const desktop = window.matchMedia('(min-width: 801px)');
+    const closeOnDesktop = () => {
+      if (desktop.matches) setMobileOpen(false);
+    };
+    document.body.style.overflow = 'hidden';
+    sidebar.current?.querySelector<HTMLButtonElement>('.mobile-close')?.focus();
+    const trapFocus = (event: KeyboardEvent) => {
+      if (event.key !== 'Tab') return;
+      const items = sidebar.current?.querySelectorAll<HTMLElement>(
+        'a[href], button:not(:disabled)',
+      );
+      if (!items?.length) return;
+      const first = items[0];
+      const last = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    closeOnDesktop();
+    desktop.addEventListener('change', closeOnDesktop);
+    document.addEventListener('keydown', trapFocus);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      desktop.removeEventListener('change', closeOnDesktop);
+      document.removeEventListener('keydown', trapFocus);
+      previousFocus?.focus();
+    };
+  }, [mobileOpen]);
   if (loading || !user)
     return (
       <div className="loading-page">
@@ -80,11 +117,19 @@ export function AppShell({ children }: { children: ReactNode }) {
       {mobileOpen && (
         <button
           className="sidebar-overlay"
+          tabIndex={-1}
           aria-label="Close navigation"
           onClick={() => setMobileOpen(false)}
         />
       )}
-      <aside className={`sidebar ${mobileOpen ? 'is-open' : ''}`}>
+      <aside
+        ref={sidebar}
+        id="main-navigation"
+        className={`sidebar ${mobileOpen ? 'is-open' : ''}`}
+        role={mobileOpen ? 'dialog' : undefined}
+        aria-modal={mobileOpen || undefined}
+        aria-label={mobileOpen ? 'Navigation' : undefined}
+      >
         <div className="sidebar-brand">
           <Link href="/" aria-label="UwiFin overview">
             <Brand />
@@ -146,12 +191,13 @@ export function AppShell({ children }: { children: ReactNode }) {
           </div>
         </div>
       </aside>
-      <div className="workspace">
+      <div className="workspace" inert={mobileOpen}>
         <header className="topbar">
           <button
             className="icon-button mobile-menu"
             aria-label="Open navigation"
             aria-expanded={mobileOpen}
+            aria-controls="main-navigation"
             onClick={() => setMobileOpen(true)}
           >
             <Menu size={22} />
@@ -162,9 +208,11 @@ export function AppShell({ children }: { children: ReactNode }) {
               {navigation.find((item) => item.href === pathname)?.name ||
                 (pathname === '/settings'
                   ? 'Settings'
-                  : pathname === '/help'
-                    ? 'Help & support'
-                    : 'Overview')}
+                  : pathname === '/admin'
+                    ? 'Administration'
+                    : pathname === '/help'
+                      ? 'Help & support'
+                      : 'Overview')}
             </strong>
           </div>
           <div className="topbar-actions">

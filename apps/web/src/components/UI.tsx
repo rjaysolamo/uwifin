@@ -105,19 +105,29 @@ export function TransactionTable({
     );
   return (
     <div className="table-scroll">
-      <table className="transaction-table">
-        <thead>
-          <tr>
-            <th>Transaction</th>
-            {!compact && <th>Date</th>}
-            <th>Status</th>
-            <th className="align-right">Amount</th>
+      <table className="transaction-table responsive-transactions" role="table">
+        <thead role="rowgroup">
+          <tr role="row">
+            <th scope="col" role="columnheader">
+              Transaction
+            </th>
+            {!compact && (
+              <th scope="col" role="columnheader">
+                Date
+              </th>
+            )}
+            <th scope="col" role="columnheader">
+              Status
+            </th>
+            <th scope="col" role="columnheader" className="align-right">
+              Amount
+            </th>
           </tr>
         </thead>
-        <tbody>
+        <tbody role="rowgroup">
           {transfers.map((transfer) => (
-            <tr key={transfer.id} onClick={() => onSelect(transfer)}>
-              <td>
+            <tr role="row" key={transfer.id} onClick={() => onSelect(transfer)}>
+              <td role="cell">
                 <button
                   className="transaction-main"
                   onClick={(event) => {
@@ -149,7 +159,7 @@ export function TransactionTable({
                 </button>
               </td>
               {!compact && (
-                <td className="date-cell">
+                <td role="cell" className="date-cell">
                   {new Date(transfer.created_at).toLocaleDateString('en-US', {
                     month: 'short',
                     day: 'numeric',
@@ -158,10 +168,13 @@ export function TransactionTable({
                   })}
                 </td>
               )}
-              <td>
+              <td role="cell">
                 <StatusBadge status={transfer.status} />
               </td>
-              <td className={`amount-cell ${transfer.kind !== 'sent' ? 'positive' : ''}`}>
+              <td
+                role="cell"
+                className={`amount-cell ${transfer.kind !== 'sent' ? 'positive' : ''}`}
+              >
                 {transfer.kind === 'sent' ? '−' : '+'}
                 {money(transfer.amount_atomic)}
                 <small>USDC</small>
@@ -191,7 +204,10 @@ export function Modal({
     const element = dialog.current;
     const focused = document.activeElement as HTMLElement | null;
     element?.showModal();
-    const close = () => closeRef.current();
+    const close = () => {
+      // Strict Mode can reopen the dialog before a queued cleanup close event fires.
+      if (!element?.open) closeRef.current();
+    };
     element?.addEventListener('close', close);
     return () => {
       element?.removeEventListener('close', close);
