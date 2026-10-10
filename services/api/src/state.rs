@@ -1,6 +1,6 @@
-use std::sync::Arc;
-use sqlx::MySqlPool;
 use crate::{config::Config, security::RateLimits};
+use sqlx::MySqlPool;
+use std::sync::Arc;
 #[derive(Clone)]
 pub struct AppState {
     pub pool: MySqlPool,
@@ -12,8 +12,13 @@ pub struct AppState {
 impl AppState {
     pub fn new(pool: MySqlPool, config: Config) -> Self {
         Self {
-            pool, config: Arc::new(config),
-            http: reqwest::Client::builder().timeout(std::time::Duration::from_secs(12)).redirect(reqwest::redirect::Policy::none()).build().expect("HTTP client configuration"),
+            pool,
+            config: Arc::new(config),
+            http: reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(12))
+                .redirect(reqwest::redirect::Policy::none())
+                .build()
+                .expect("HTTP client configuration"),
             limits: Arc::new(RateLimits::default()),
             password_slots: Arc::new(tokio::sync::Semaphore::new(4)),
         }

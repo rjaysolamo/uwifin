@@ -1,9 +1,11 @@
 /** USDC amounts are represented as strings of atomic units (six decimals). */
 export function parseAmount(value: string): bigint {
-  if (!/^\d{1,18}(\.\d{1,6})?$/.test(value)) throw new Error('Enter a valid amount with up to 6 decimal places.');
+  if (!/^\d{1,18}(\.\d{1,6})?$/.test(value))
+    throw new Error('Enter a valid amount with up to 6 decimal places.');
   const [whole, fraction = ''] = value.split('.');
   const amount = BigInt(whole) * 1_000_000n + BigInt(fraction.padEnd(6, '0'));
-  if (amount <= 0n || amount > 9_223_372_036_854_775_807n) throw new Error('Enter an amount greater than zero and within the supported limit.');
+  if (amount <= 0n || amount > 9_223_372_036_854_775_807n)
+    throw new Error('Enter an amount greater than zero and within the supported limit.');
   return amount;
 }
 

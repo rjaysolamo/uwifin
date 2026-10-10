@@ -4,7 +4,11 @@ async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
     tracing_subscriber::fmt().json().init();
     let config = Config::from_env()?;
-    let pool = sqlx::mysql::MySqlPoolOptions::new().max_connections(10).acquire_timeout(std::time::Duration::from_secs(5)).connect(&config.database_url).await?;
+    let pool = sqlx::mysql::MySqlPoolOptions::new()
+        .max_connections(10)
+        .acquire_timeout(std::time::Duration::from_secs(5))
+        .connect(&config.database_url)
+        .await?;
     db::run_migrations(&pool).await?;
     let state = AppState::new(pool, config);
     let worker_state = state.clone();
@@ -13,14 +17,36 @@ async fn main() -> anyhow::Result<()> {
         interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
         loop {
             interval.tick().await;
-            if let Err(error) = uwifin_api::transaction::reconcile_pending(&worker_state).await { tracing::warn!(error_code = error.error.code, "Transaction reconciliation unavailable"); }
-            if let Err(error) = uwifin_api::deposits::reconcile(&worker_state).await { tracing::warn!(error_code = error.error.code, "Deposit reconciliation unavailable"); }
-            if let Err(error) = uwifin_api::payments::reconcile_pending(&worker_state).await { tracing::warn!(error_code = error.error.code, "Payment reconciliation unavailable"); }
+            if let Err(error) = uwifin_api::transaction::reconcile_pending(&worker_state).await {
+                tracing::warn!(
+                    error_code = error.error.code,
+                    "Transaction reconciliation unavailable"
+                );
+            }
+            if let Err(error) = uwifin_api::deposits::reconcile(&worker_state).await {
+                tracing::warn!(
+                    error_code = error.error.code,
+                    "Deposit reconciliation unavailable"
+                );
+            }
+            if let Err(error) = uwifin_api::payments::reconcile_pending(&worker_state).await {
+                tracing::warn!(
+                    error_code = error.error.code,
+                    "Payment reconciliation unavailable"
+                );
+            }
         }
     });
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8080").await?;
     tracing::info!("UwiFin API listening on port 8080; financial providers require configuration");
-    axum::serve(listener, app(state).into_make_service_with_connect_info::<std::net::SocketAddr>()).with_graceful_shutdown(async { let _ = tokio::signal::ctrl_c().await; }).await?;
+    axum::serve(
+        listener,
+        app(state).into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(async {
+        let _ = tokio::signal::ctrl_c().await;
+    })
+    .await?;
     worker.abort();
     Ok(())
 }

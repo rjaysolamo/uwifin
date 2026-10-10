@@ -26,16 +26,19 @@ UwiFin is a Web3-enabled financial application for simple cross-border transacti
    - Docker
 
 2. Start the database:
+
    ```bash
    docker compose up -d
    ```
 
 3. Install workspace dependencies:
+
    ```bash
    pnpm install
    ```
 
 4. Run the web app:
+
    ```bash
    pnpm dev:web
    ```
@@ -44,6 +47,24 @@ UwiFin is a Web3-enabled financial application for simple cross-border transacti
    ```bash
    cargo run --manifest-path services/api/Cargo.toml
    ```
+
+## Code formatting
+
+Run `pnpm format` from the repository root to format supported web source, tests,
+JSON/JSONC, CSS, YAML, Markdown, and the Rust API. Run `pnpm format:check` to check
+formatting without writing files. Prettier is pinned in the root dev dependencies;
+Rust uses `cargo fmt` (Rust 1.90.0, matching CI). With mise, use
+`mise exec rust@1.90.0 -- pnpm format` or `mise exec rust@1.90.0 -- pnpm format:check`.
+
+Prettier keeps the existing single quotes and semicolons, uses two-space indentation
+and a 100-column target, and preserves import order. Rust uses rustfmt defaults.
+`.gitignore` and `.prettierignore` exclude dependencies, generated files, build
+output, environment files, font assets, lockfiles, and versioned SQL migrations.
+SQL, shell scripts, TOML, and SVG assets have no configured formatter and are not
+rewritten by these commands. Keep migration contents stable for checksum validation.
+
+The existing lint, type-check, build, and test commands remain separate checks; see
+[verification commands](docs/wallet-operations.md#verification).
 
 ## Notes
 
