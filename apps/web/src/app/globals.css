@@ -4239,3 +4239,11 @@ svg {
     flex-shrink: 0;
   }
 }
+
+.quick-send .family-illustration {
+  position: static;
+  display: block;
+  width: 160px;
+  max-width: 100%;
+  margin: 8px auto;
+}

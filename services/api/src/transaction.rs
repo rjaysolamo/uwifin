@@ -439,10 +439,19 @@ pub fn validate_prepared(
             "Unsupported wallet preparation response.",
         ));
     }
+    let valid_nonce = call["data"]["nonce"]
+        .as_str()
+        .and_then(|value| value.strip_prefix("0x"))
+        .is_some_and(|value| {
+            !value.is_empty()
+                && value.len() <= 64
+                && value.bytes().all(|byte| byte.is_ascii_hexdigit())
+        });
     if !call["data"]["sender"]
         .as_str()
         .is_some_and(|address| address.eq_ignore_ascii_case(sender))
         || !call["signatureRequest"].is_object()
+        || !valid_nonce
     {
         return Err(ApiError::new(
             "PROVIDER_REJECTED",
@@ -633,55 +642,49 @@ pub async fn reconcile_one(state: &AppState, id: &str, user: &str) -> Result<(),
     if canonical["hash"] != receipt["blockHash"] || canonical["hash"].is_null() {
         return Ok(());
     }
-    let operation_hash = receipt["logs"]
-        .as_array()
-        .and_then(|logs| {
-            logs.iter().find(|log| {
-                log["address"].as_str().is_some_and(|address| {
-                    [
-                        "0x0000000071727de22e5e9d8baf0edac6f37da032",
-                        "0x5ff137d4b0fdcd49dca30c7cf57e578a026d2789",
-                    ]
-                    .iter()
-                    .any(|entry| address.eq_ignore_ascii_case(entry))
-                }) && log["topics"][0].as_str()
-                    == Some("0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f")
-                    && log["topics"][2].as_str().is_some_and(|topic| {
-                        topic.eq_ignore_ascii_case(&format!("0x{:0>64}", &record.sender[2..]))
-                    })
-            })
-        })
-        .and_then(|log| log["topics"][1].as_str())
-        .filter(|hash| crate::alchemy::valid_hash(hash));
-    let result = match crate::alchemy::receipt_state(&receipt)? {
-        crate::alchemy::ReceiptState::Failed => "FAILED",
-        crate::alchemy::ReceiptState::Confirmed
-            if crate::alchemy::contains_transfer(
+    let (operation_hash, result) = match crate::alchemy::receipt_state(&receipt)? {
+        crate::alchemy::ReceiptState::Failed => (None, "FAILED"),
+        crate::alchemy::ReceiptState::Confirmed => {
+            let prepared = record
+                .prepared_call
+                .as_ref()
+                .ok_or_else(ApiError::unavailable)?;
+            let Some((hash, outcome)) = crate::alchemy::operation_outcome(
                 &receipt,
+                &prepared.0,
                 &state.config.usdc_address,
-                &record.sender,
                 &record.recipient,
                 record.amount_atomic,
-            ) =>
-        {
-            "CONFIRMED"
+            )?
+            else {
+                return Ok(());
+            };
+            (
+                Some(hash),
+                if outcome == crate::alchemy::ReceiptState::Confirmed {
+                    "CONFIRMED"
+                } else {
+                    "FAILED"
+                },
+            )
         }
-        crate::alchemy::ReceiptState::Confirmed if code == 500 => "FAILED",
-        _ => return Ok(()),
+        crate::alchemy::ReceiptState::Pending => return Ok(()),
     };
     let mut tx = state.pool.begin().await?;
-    sqlx::query("UPDATE transactions SET status = ?, tx_hash = ?, user_operation_hash = ?, gas_used = ?, gas_price = ?, confirmed_at = CASE WHEN ? = 'CONFIRMED' THEN NOW() ELSE NULL END, signed_call = NULL, error_code = CASE WHEN ? = 'FAILED' THEN 'TRANSACTION_FAILED' ELSE NULL END, updated_at = NOW() WHERE id = ? AND status IN ('SUBMITTED','PENDING')")
+    let updated = sqlx::query("UPDATE transactions SET status = ?, tx_hash = ?, user_operation_hash = ?, gas_used = ?, gas_price = ?, confirmed_at = CASE WHEN ? = 'CONFIRMED' THEN NOW() ELSE NULL END, signed_call = NULL, error_code = CASE WHEN ? = 'FAILED' THEN 'TRANSACTION_FAILED' ELSE NULL END, updated_at = NOW() WHERE id = ? AND status IN ('SUBMITTED','PENDING')")
         .bind(result).bind(hash).bind(operation_hash).bind(crate::alchemy::hex_u64(&receipt["gasUsed"]).and_then(|v| i64::try_from(v).ok())).bind(crate::alchemy::hex_u64(&receipt["effectiveGasPrice"]).and_then(|v| i64::try_from(v).ok())).bind(result).bind(result).bind(id).execute(&mut *tx).await?;
-    audit(
-        &mut tx,
-        user,
-        if result == "CONFIRMED" {
-            "transaction.confirmed"
-        } else {
-            "transaction.failed"
-        },
-    )
-    .await?;
+    if updated.rows_affected() == 1 {
+        audit(
+            &mut tx,
+            user,
+            if result == "CONFIRMED" {
+                "transaction.confirmed"
+            } else {
+                "transaction.failed"
+            },
+        )
+        .await?;
+    }
     tx.commit().await?;
     Ok(())
 }

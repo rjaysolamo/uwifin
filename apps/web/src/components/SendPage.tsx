@@ -24,6 +24,7 @@ export function SendPage({
   const [result, setResult] = useState<Transfer | null>(null);
   const key = useRef('');
   const reviewedWallet = useRef('');
+  const intentStorageKey = useRef('');
   const reviewTransfer = (event: FormEvent) => {
     event.preventDefault();
     setError('');
@@ -35,6 +36,7 @@ export function SendPage({
       const atomic = parseAmount(amount);
       if (atomic > BigInt(balance)) throw new Error('Insufficient USDC balance.');
       const storageKey = `uwifin-intent:${user?.id}:${wallet.id}:${recipient.toLowerCase()}:${atomic}`;
+      intentStorageKey.current = storageKey;
       key.current = sessionStorage.getItem(storageKey) || crypto.randomUUID();
       sessionStorage.setItem(storageKey, key.current);
       reviewedWallet.current = wallet.id;
@@ -60,6 +62,20 @@ export function SendPage({
     }
   };
   const current = transfers.find((item) => item.id === result?.id) || result;
+  const startAnother = () => {
+    if (!current || !['confirmed', 'failed'].includes(current.status)) return;
+    try {
+      // Only an explicit new transfer after settlement releases the retry key.
+      if (sessionStorage.getItem(intentStorageKey.current) === key.current)
+        sessionStorage.removeItem(intentStorageKey.current);
+      key.current = '';
+      setResult(null);
+      setReview(false);
+      setError('');
+    } catch {
+      setError('Unable to start another transfer. Check your browser storage settings.');
+    }
+  };
   return (
     <>
       <section className="page-heading">
@@ -94,6 +110,16 @@ export function SendPage({
               <Link href="/transactions" className="button primary">
                 View transaction history
               </Link>
+              {['confirmed', 'failed'].includes(current.status) && (
+                <button className="button secondary" onClick={startAnother}>
+                  Start another transfer
+                </button>
+              )}
+              {error && (
+                <p role="alert" className="field-error">
+                  {error}
+                </p>
+              )}
             </div>
           ) : review ? (
             <div className="review-transfer">
