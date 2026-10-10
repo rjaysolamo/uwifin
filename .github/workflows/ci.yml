@@ -1,25 +1,102 @@
-name: MVP checks
-on: [push, pull_request]
+name: UwiFin CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  verify:
+  web:
+    name: Web checks
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
         with:
-          version: 10.34.5
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.1
+          cache: pnpm
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Check Prettier formatting
+        run: pnpm format:web:check
+      - name: Run ESLint
+        run: pnpm lint:web
+      - name: Check TypeScript
+        run: pnpm --dir apps/web type-check
+      - name: Run web tests
+        run: pnpm test:web
+      - name: Build Next.js
+        run: pnpm build:web
+
+  api:
+    name: Rust API checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@1.90.0
+        with:
+          components: rustfmt
+      - name: Check Rust formatting
+        run: cargo fmt --manifest-path services/api/Cargo.toml -- --check
+      - name: Check API
+        run: cargo check --locked --manifest-path services/api/Cargo.toml
+      - name: Run API tests
+        run: cargo test --locked --manifest-path services/api/Cargo.toml
+      - name: Build API
+        run: cargo build --locked --manifest-path services/api/Cargo.toml
+
+  provider-integration:
+    name: Provider integration checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 24.14.1
           cache: pnpm
       - uses: dtolnay/rust-toolchain@1.90.0
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --dir apps/web type-check && pnpm --dir apps/web lint && pnpm --dir apps/web test && pnpm --dir apps/web build
-      - run: cargo test --locked --manifest-path services/api/Cargo.toml && cargo build --locked --manifest-path services/api/Cargo.toml
-      - run: docker compose up -d --wait
-      - run: docker exec uwifin-mariadb mariadb -uroot -prootpassword -e "CREATE DATABASE uwifin_test; GRANT ALL ON uwifin_test.* TO 'uwifin'@'%';"
-      - run: cd apps/web && node tests/provider-integration.mjs
-      - if: always()
-        run: docker compose down -v
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build API for integration tests
+        run: cargo build --locked --manifest-path services/api/Cargo.toml
+      - name: Start MariaDB
+        run: docker compose up -d --wait --wait-timeout 120 mariadb
+      - name: Prepare isolated test database
+        run: |
+          docker compose exec -T mariadb mariadb -uroot -prootpassword -e \
+            "CREATE DATABASE uwifin_test; GRANT ALL ON uwifin_test.* TO 'uwifin'@'%';"
+      - name: Run provider fixtures
+        working-directory: apps/web
+        env:
+          TEST_DATABASE_URL: mysql://uwifin:uwifin@127.0.0.1:3306/uwifin_test
+        # The harness overrides provider URLs with loopback fixtures and synthetic
+        # test keys. Never supply live provider credentials to this job.
+        run: node tests/provider-integration.mjs
+      - name: Show database diagnostics on failure
+        if: failure()
+        run: |
+          docker compose ps -a
+          docker compose logs --no-color mariadb
+      - name: Tear down test database
+        if: always()
+        run: docker compose down --volumes --remove-orphans
