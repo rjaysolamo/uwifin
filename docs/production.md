@@ -52,3 +52,15 @@ The script refuses ordinary production database names and refuses to overwrite a
 - Structured API logs, error responses and audit events share a request ID. Background work has its own correlation scope.
 - Deposits are fetched in small pages from Alchemy and checked against finalized canonical receipts. If history lags, inspect provider errors; balances remain independent live token reads. Failed page-token retries restart the bounded range and deduplicate persisted records.
 - Test service restart, provider outage, denied sponsorship, webhook replay and failed transactions before enabling real funds. Measure latency and monthly availability; 99.5% is a target, not a certified result.
+
+## SRS MVP v1.0 acceptance status
+
+The repository contains the P0 identity, wallet, transfer, history, admin, and on-ramp surfaces. Local Rust tests and the MariaDB provider fixture exercise their application boundaries; they do not establish full MVP acceptance. The October 10 SRS pass corrected operation-specific settlement, a concurrent password-change/login race, deliberate repeat-transfer handling, and dashboard illustration overflow. No custom contract or new infrastructure was added. Historical remittance migrations remain intact to preserve database history; they do not enable a payout product.
+
+Outstanding acceptance gates:
+
+- Alchemy Base Sepolia wallet creation, real signed transfers, denied sponsorship, provider interruption, receipt verification, and email OTP must run with an approved application, origin and constrained Gas Manager policy.
+- Stripe Crypto Onramp requires approved test-mode access and confirmation of the actual country/currency/Base USDC combination. The official webhook SDK requirement is unresolved for the Rust stack; see [dependency decisions](dependencies.md#stripe-sdk-requirement-discrepancy).
+- The Rust advisory scan still fails for transitive `rsa` 0.9.10 (RUSTSEC-2023-0071, no patched version listed). SQLx uses public-key encryption in its database authentication path; this does not convert the scan into a pass. Preserve TLS/trusted database requirements and review upstream remediation before release.
+- HTTPS ingress, secret management, deployed monitoring, daily backup scheduling/off-host copies, and a restoration drill require an operator's environment. Repository scripts and local checks alone do not certify these controls or the availability target.
+- PHP bank/e-wallet cash-out remains unavailable pending an eligible licensed payout partner.
