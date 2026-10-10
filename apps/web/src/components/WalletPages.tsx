@@ -1,4 +1,5 @@
 'use client';
+import { EmailWallet } from './EmailWallet';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import QRCode from 'qrcode';
@@ -11,6 +12,7 @@ export function WalletPage() {
   const [busy, setBusy] = useState(false);
   const [connectionError, setConnectionError] = useState('');
   return <><section className="page-heading"><div><span className="eyebrow">A HOME FOR YOUR MONEY</span><h1>My wallet.</h1><p>A smart wallet controlled by your own wallet account.</p></div><button className="button primary" disabled={busy || !capabilities?.wallet_enabled} onClick={async () => { setBusy(true); setConnectionError(''); try { await connect(); } catch (err) { setConnectionError(err instanceof Error ? err.message : 'Wallet connection failed.'); } finally { setBusy(false); } }}><Link2 size={16}/>{busy ? 'Approve in your wallet…' : 'Connect wallet'}</button></section>
+    <EmailWallet/>
     {(error || connectionError) && <p className="error-banner" role="alert">{connectionError || error}</p>}
     {capabilities && !capabilities.wallet_enabled && <p className="info-note">Wallet services are not configured yet. No wallet or balance has been created.</p>}
     <div className="wallet-layout"><section className="wallet-main-card"><div className="card-heading"><h2>UwiFin smart wallet</h2><span className="network-pill">{networkLabel}</span></div>

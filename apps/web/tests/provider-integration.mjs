@@ -1,7 +1,7 @@
 // Transport fixtures verify our boundaries; they do not certify provider compatibility.
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { spawn } from 'node:child_process';
+import { spawn, execFileSync } from 'node:child_process';
 import { once } from 'node:events';
 import { createHmac, randomUUID } from 'node:crypto';
 import { privateKeyToAccount } from 'viem/accounts';
@@ -20,6 +20,9 @@ const wrongSigner = privateKeyToAccount(`0x${'0'.repeat(63)}2`);
 let submitted = 0, accountRequests = 0, stripeCreates = 0, settles = false, receiptFailed = false;
 let providerSession;
 const prepared = { type: 'user-operation-v070', chainId: '0x2105', data: { sender: address, nonce: '0x0', callData: '0x1234', paymaster: recipient }, signatureRequest: { type: 'personal_sign', data: { raw: `0x${'ab'.repeat(32)}` } }, feePayment: { sponsored: true } };
+let depositsReady = false;
+const depositHash = '0x' + 'd'.repeat(64);
+const operationHash = '0x' + 'e'.repeat(64);
 const fixture = createServer(async (req, res) => {
   try {
     let body = ''; for await (const chunk of req) body += chunk;
@@ -39,15 +42,18 @@ const fixture = createServer(async (req, res) => {
     } else {
       const rpc = JSON.parse(body);
       switch (rpc.method) {
+        case 'alchemy_getAssetTransfers': result = {transfers: depositsReady ? [{hash:depositHash,from:recipient,to:address,uniqueId:depositHash+':log:0',rawContract:{address:token,value:'0xf4240'}}] : []}; break;
         case 'eth_chainId': result = '0x2105'; break;
         case 'eth_call': assert.equal(rpc.params[0].to, token); assert.match(rpc.params[0].data, /^0x70a08231/); result = `0x${(1000000000n).toString(16)}`; break;
         case 'wallet_requestAccount': accountRequests++; assert.equal(rpc.params[0].signerAddress.toLowerCase(), signer.address.toLowerCase()); assert.equal(rpc.params[0].creationHint.accountType, 'sma-b'); result = { accountAddress: address, id: 'fixture_account' }; break;
         case 'wallet_prepareCalls': assert.equal(rpc.params[0].calls.length, 1); assert.equal(rpc.params[0].calls[0].to, token); assert.match(rpc.params[0].calls[0].data, /^0xa9059cbb/); assert.equal(rpc.params[0].capabilities.paymasterService.policyId, 'fixture_policy'); result = prepared; break;
-        case 'wallet_sendPreparedCalls': submitted++; assert.deepEqual(rpc.params[0].data, prepared.data); result = { id: 'fixture_call' }; break;
+        case 'wallet_sendPreparedCalls': submitted++; assert.deepEqual(rpc.params[0].data, prepared.data); result = { id: `fixture_call_${submitted}` }; break;
         case 'wallet_getCallsStatus': result = settles ? { status: 200, receipts: [{ transactionHash: txHash }] } : { status: 100 }; break;
-        case 'eth_getTransactionReceipt': result = { transactionHash: txHash, status: receiptFailed ? '0x0' : '0x1', blockNumber: '0x64', blockHash, gasUsed: '0x100', effectiveGasPrice: '0x1', logs: [{ address: token, topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',`0x${address.slice(2).padStart(64,'0')}`,`0x${recipient.slice(2).padStart(64,'0')}`], data: `0x${(1000001n).toString(16).padStart(64,'0')}` }] }; break;
+        case 'eth_getTransactionReceipt':
+          if (rpc.params[0] === depositHash) { result = {transactionHash:depositHash,status:'0x1',blockNumber:'0x63',blockHash,logs:[{address:token,topics:['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',`0x${recipient.slice(2).padStart(64,'0')}`,`0x${address.slice(2).padStart(64,'0')}`],data:'0xf4240'}]}; break; }
+          result = { transactionHash: txHash, status: receiptFailed ? '0x0' : '0x1', blockNumber: '0x64', blockHash, gasUsed: '0x100', effectiveGasPrice: '0x1', logs: [{ address: token, topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',`0x${address.slice(2).padStart(64,'0')}`,`0x${recipient.slice(2).padStart(64,'0')}`], data: `0x${(1000001n).toString(16).padStart(64,'0')}` },{address:'0x0000000071727de22e5e9d8baf0edac6f37da032',topics:['0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f',operationHash,`0x${address.slice(2).padStart(64,'0')}`],data:'0x'}] }; break;
         case 'eth_blockNumber': result = '0x66'; break;
-        case 'eth_getBlockByNumber': result = { hash: blockHash }; break;
+        case 'eth_getBlockByNumber': result = { hash: blockHash, timestamp: '0x68000000' }; break;
         default: throw new Error(`Unexpected method: ${rpc.method}`);
       }
       result = { jsonrpc: '2.0', id: rpc.id, result };
@@ -60,7 +66,7 @@ const api = spawn('../../services/api/target/debug/uwifin-api', [], { cwd: proce
 let logs = ''; api.stdout.on('data', chunk => { logs += chunk; }); api.stderr.on('data', chunk => { logs += chunk; });
 async function request(path, { method = 'GET', token, body, key, headers = {} } = {}) {
   const response = await fetch(`${origin}/api/v1${path}`, { method, headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}), ...(key ? { 'Idempotency-Key': key } : {}), ...headers }, body: body === undefined ? undefined : JSON.stringify(body) });
-  return { status: response.status, body: await response.json() };
+  return { status: response.status, headers: response.headers, body: await response.json() };
 }
 try {
   let ready = false;
@@ -69,6 +75,18 @@ try {
   assert.equal((await request('/wallets')).status, 401);
   const register = async () => { const result = await request('/auth/register', { method: 'POST', body: { email: `${randomUUID()}@example.test`, password: 'synthetic-password-123', name: 'Fixture User' } }); assert.equal(result.status, 201, JSON.stringify(result.body)); return result.body.session_id; };
   const alice = await register(), bob = await register();
+  const forbidden = await request('/admin/users',{token:alice});
+  assert.equal(forbidden.status,403); assert.equal(forbidden.body.error.request_id,forbidden.headers.get('x-request-id'));
+  assert.equal((await request('/auth/register',{method:'POST',body:{}})).body.error.code,'INVALID_REQUEST');
+  const aliceUser = (await request('/auth/me',{token:alice})).body;
+  assert.match(aliceUser.id,/^[a-f0-9-]{36}$/);
+  execFileSync('docker',['exec','uwifin-mariadb','mariadb','-uroot','-prootpassword','uwifin_test','-e',`UPDATE users SET role = 'admin' WHERE id = '${aliceUser.id}'`]);
+  assert.equal((await request('/admin/users',{token:alice})).status,200);
+  assert.equal((await request('/admin/users',{token:bob})).status,403);
+  assert.equal((await request('/admin/networks/base',{method:'PATCH',token:bob,body:{active:false}})).status,403);
+  assert.equal((await request('/admin/networks/base',{method:'PATCH',token:alice,body:{active:false}})).status,200);
+  assert.equal((await request('/payments',{method:'POST',token:alice,key:randomUUID(),body:{wallet_id:'none',amount:'1',currency:'USD'}})).status,503);
+  assert.equal((await request('/admin/networks/base',{method:'PATCH',token:alice,body:{active:true}})).status,200);
   let challenge = await request('/wallets/challenge', { method: 'POST', token: alice, body: { signer_address: signer.address } }); assert.equal(challenge.status, 200);
   const signature = await signer.signMessage({ message: challenge.body.message });
   assert.equal((await request('/wallets', { method:'POST', token:bob, body:{ challenge_id:challenge.body.id, signature } })).status, 400);
@@ -117,6 +135,33 @@ try {
   const records=(await request('/payments',{token:alice})).body.payments;
   assert.equal(records[0].status,'confirmed'); assert.equal(records[0].crypto_amount_atomic,'9500001'); assert.equal(records[0].fiat_amount_minor,'1000'); assert.equal(records[0].request_fingerprint,undefined);
   assert.equal((await request('/payments',{token:bob})).body.payments.length,0);
+  assert.equal((await request('/auth/password',{method:'POST',token:alice,body:{current_password:'wrong',new_password:'a-new-synthetic-password'}})).status,403);
+  const login = await request('/auth/login',{method:'POST',body:{email:aliceUser.email,password:'synthetic-password-123'}});
+  assert.equal(login.status,200);
+  assert.equal((await request('/auth/password',{method:'POST',token:alice,body:{current_password:'synthetic-password-123',new_password:'a-new-synthetic-password'}})).status,200);
+  assert.equal((await request('/auth/me',{token:login.body.session_id})).status,401);
+  assert.equal((await request('/transactions?page=2&limit=1&kind=sent',{token:alice})).status,200);
+  assert.equal(confirmed.user_operation_hash,operationHash);
+  const failing = await request('/transactions',{method:'POST',token:alice,body:intentBody,key:randomUUID()});
+  const failingRpc = (method,params=[]) => request(`/transactions/${failing.body.id}/rpc`,{method:'POST',token:alice,body:{method,params}});
+  assert.equal((await failingRpc('wallet_prepareCalls')).status,200);
+  assert.equal((await failingRpc('wallet_sendPreparedCalls',[signed])).status,200);
+  receiptFailed = true;
+  assert.equal((await failingRpc('wallet_getCallsStatus')).body.status,500);
+  const failed = (await request(`/transactions/${failing.body.id}`,{token:alice})).body;
+  assert.equal(failed.status,'failed'); assert.equal(failed.error_code,'TRANSACTION_FAILED');
+  receiptFailed = false;
+  depositsReady = true;
+  let deposits = [];
+  for (let attempt=0; attempt<25; attempt++) {
+    deposits = (await request('/transactions?kind=received',{token:alice})).body.transactions;
+    if (deposits.length) break;
+    await new Promise(resolve=>setTimeout(resolve,1000));
+  }
+  assert.equal(deposits.length,1,'incoming deposits should be reconciled');
+  assert.equal(deposits[0].amount_atomic,'1000000'); assert.equal(deposits[0].tx_hash,depositHash); assert.equal(deposits[0].address,recipient);
+  assert.equal((await request('/transactions?kind=received',{token:bob})).body.transactions.length,0);
+  assert.equal(confirmed.gas_used,'256'); assert.equal(confirmed.gas_price,'1');
   assert.equal((await request('/auth/logout',{method:'POST',token:alice})).status,200);
   assert.equal((await request('/wallets',{token:alice})).status,401);
   console.log('PASS: MariaDB migrations, authentication/revocation, wallet ownership/replay/reconnect, cross-user isolation, exact balances, concurrent idempotency, SDK signing, tampered submissions, pending/confirmed receipt verification, Stripe creation, signature/dedup/amount reconciliation. Synthetic provider fixtures only.');

@@ -60,6 +60,7 @@ async fn get_session(state: &AppState, id: &str) -> Result<serde_json::Value, Ap
 }
 pub async fn create_payment(State(state): State<AppState>, headers: HeaderMap, Json(req): Json<CreatePayment>) -> Result<Json<serde_json::Value>, ApiError> {
     let user = authorize(&state, &headers).await?;
+    crate::admin::require_enabled(&state).await?;
     state.limits.check(format!("payment:{}", user.id), 5)?;
     if !state.config.onramp_enabled() { return Err(ApiError::new("PROVIDER_NOT_CONFIGURED", "Card purchases are not available for this wallet yet.")); }
     let key = headers.get("idempotency-key").and_then(|v| v.to_str().ok()).filter(|key| (8..=128).contains(&key.len()) && key.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'-' || c == b'_')).ok_or_else(|| ApiError::new("INVALID_REQUEST", "A valid Idempotency-Key is required."))?;

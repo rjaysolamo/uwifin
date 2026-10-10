@@ -7,7 +7,7 @@ use crate::{error::ApiError, security::{audit, hash}, state::AppState};
 
 #[derive(Clone, Debug, Serialize, sqlx::FromRow)]
 pub struct UserResponse {
-    pub id: String, pub email: String, pub name: String, pub created_at: chrono::DateTime<chrono::Utc>,
+    pub id: String, pub email: String, pub name: String, pub role: String, pub created_at: chrono::DateTime<chrono::Utc>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -37,9 +37,10 @@ pub fn session_token(headers: &HeaderMap) -> Result<&str, ApiError> {
 }
 pub async fn authorize(state: &AppState, headers: &HeaderMap) -> Result<UserResponse, ApiError> {
     let token = session_token(headers)?;
-    let user = sqlx::query_as::<_, UserResponse>("SELECT u.id, u.email, u.name, u.created_at FROM users u JOIN sessions s ON s.user_id = u.id WHERE s.session_hash = ? AND s.revoked_at IS NULL AND s.expires_at > NOW() AND u.status = 'active'")
+    let user = sqlx::query_as::<_, UserResponse>("SELECT u.id, u.email, u.name, u.role, u.created_at FROM users u JOIN sessions s ON s.user_id = u.id WHERE s.session_hash = ? AND s.revoked_at IS NULL AND s.expires_at > NOW() AND u.status = 'active'")
         .bind(hash(token)).fetch_optional(&state.pool).await?.ok_or_else(|| ApiError::new("UNAUTHORIZED", "Your session has expired. Please sign in again."))?;
     state.limits.check(format!("user:{}", user.id), 120)?;
+    tracing::info!(request_id = crate::security::request_id(), user_id = user.id, operation = "authorize", "request authenticated");
     Ok(user)
 }
 async fn issue(connection: &mut sqlx::MySqlConnection, user_id: &str) -> Result<String, ApiError> {
@@ -68,7 +69,7 @@ pub async fn register(State(state): State<AppState>, Json(req): Json<Credentials
     }
     let session_id = issue(&mut tx, &user_id).await?;
     audit(&mut tx, &user_id, "account.registered").await?;
-    let user = sqlx::query_as::<_, UserResponse>("SELECT id, email, name, created_at FROM users WHERE id = ?").bind(&user_id).fetch_one(&mut *tx).await?;
+    let user = sqlx::query_as::<_, UserResponse>("SELECT id, email, name, role, created_at FROM users WHERE id = ?").bind(&user_id).fetch_one(&mut *tx).await?;
     tx.commit().await?;
     Ok((StatusCode::CREATED, Json(SessionResponse { user, session_id })))
 }
@@ -96,7 +97,7 @@ pub async fn login(State(state): State<AppState>, Json(req): Json<Credentials>) 
     let session_id = issue(&mut tx, &record.id).await?;
     sqlx::query("UPDATE users SET last_login_at = NOW() WHERE id = ?").bind(&record.id).execute(&mut *tx).await?;
     audit(&mut tx, &record.id, "account.login").await?;
-    let user = sqlx::query_as::<_, UserResponse>("SELECT id, email, name, created_at FROM users WHERE id = ?").bind(&record.id).fetch_one(&mut *tx).await?;
+    let user = sqlx::query_as::<_, UserResponse>("SELECT id, email, name, role, created_at FROM users WHERE id = ?").bind(&record.id).fetch_one(&mut *tx).await?;
     tx.commit().await?;
     Ok(Json(SessionResponse { user, session_id }))
 }
@@ -121,4 +122,35 @@ pub async fn update_profile(State(state): State<AppState>, headers: HeaderMap, J
     tx.commit().await?;
     user.name = name;
     Ok(Json(user))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PasswordChange { current_password: String, new_password: String }
+pub async fn change_password(State(state): State<AppState>, headers: HeaderMap, Json(req): Json<PasswordChange>) -> Result<Json<serde_json::Value>, ApiError> {
+    let user = authorize(&state,&headers).await?;
+    state.limits.check(format!("password:{}",user.id),5)?;
+    if req.current_password.len()>128 || !(12..=128).contains(&req.new_password.len()) { return Err(ApiError::new("INVALID_REQUEST","Use a new password between 12 and 128 characters.")); }
+    let old: String = sqlx::query_scalar("SELECT password_hash FROM users WHERE id = ?").bind(&user.id).fetch_one(&state.pool).await?;
+    let previous = old.clone();
+    let permit = state.password_slots.clone().try_acquire_owned().map_err(|_|ApiError::new("RATE_LIMITED","Try again shortly."))?;
+    let new = tokio::task::spawn_blocking(move || {
+        let _permit = permit;
+        let parsed = PasswordHash::new(&old).map_err(|_|ApiError::unavailable())?;
+        if Argon2::default().verify_password(req.current_password.as_bytes(),&parsed).is_err() { return Err(ApiError::new("FORBIDDEN","The current password is incorrect.")); }
+        Argon2::default().hash_password(req.new_password.as_bytes(),&SaltString::generate(&mut OsRng)).map(|v|v.to_string()).map_err(|_|ApiError::unavailable())
+    }).await.map_err(|_|ApiError::unavailable())??;
+    let mut tx = state.pool.begin().await?;
+    let changed = sqlx::query("UPDATE users SET password_hash = ?,updated_at = NOW() WHERE id = ? AND password_hash = ?").bind(new).bind(&user.id).bind(previous).execute(&mut *tx).await?;
+    if changed.rows_affected()!=1 { return Err(ApiError::new("CONFLICT","Your password changed. Sign in again.")); }
+    sqlx::query("UPDATE sessions SET revoked_at = NOW() WHERE user_id = ? AND session_hash <> ? AND revoked_at IS NULL").bind(&user.id).bind(hash(session_token(&headers)?)).execute(&mut *tx).await?;
+    audit(&mut tx,&user.id,"account.password_changed").await?; tx.commit().await?;
+    Ok(Json(serde_json::json!({"status":"updated"})))
+}
+pub async fn revoke_other_sessions(State(state): State<AppState>, headers: HeaderMap) -> Result<Json<serde_json::Value>,ApiError> {
+    let user = authorize(&state,&headers).await?;
+    let mut tx = state.pool.begin().await?;
+    sqlx::query("UPDATE sessions SET revoked_at = NOW() WHERE user_id = ? AND session_hash <> ? AND revoked_at IS NULL").bind(&user.id).bind(hash(session_token(&headers)?)).execute(&mut *tx).await?;
+    audit(&mut tx,&user.id,"account.other_sessions_revoked").await?; tx.commit().await?;
+    Ok(Json(serde_json::json!({"status":"revoked"})))
 }

@@ -43,6 +43,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       <nav aria-label="Main navigation">{navigation.map(({ name, href, icon: Icon }) => <Link key={href} href={href} className={`nav-link ${pathname === href || (href === '/' && pathname === '/dashboard') ? 'active' : ''}`} aria-current={pathname === href ? 'page' : undefined}><Icon size={19}/><span>{name}</span>{href === '/payments' && <span className="nav-new">NEW</span>}</Link>)}</nav>
       <div className="sidebar-bottom">
         <div className="home-note"><span className="home-note-icon"><Heart size={19}/></span><h3>A little closer to home.</h3><p>Big dreams. Everyday moments.<br/>Keep your family connected.</p><span>Padala para sa Pamilya.</span></div>
+        {user.role === 'admin' && <Link href="/admin" className="nav-link"><ShieldCheck size={19}/>Administration</Link>}
         <Link href="/settings" className={`nav-link ${pathname === '/settings' ? 'active' : ''}`}><Settings size={19}/><span>Settings</span></Link>
         <Link href="/help" className={`nav-link ${pathname === '/help' ? 'active' : ''}`}><CircleHelp size={19}/><span>Help & support</span><ArrowUpRight size={14} className="nav-end"/></Link>
         <div className="sidebar-security"><ShieldCheck size={15}/><span>Designed with security in mind</span></div>

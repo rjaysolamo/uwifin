@@ -2,13 +2,13 @@
 
 ## What is implemented
 
-Email/password sessions use an HttpOnly browser cookie via the Next.js BFF. Connecting an injected EIP-1193 Ethereum wallet requests a short-lived challenge bound to the application user, session, origin, and network. The backend verifies the EIP-191 signature before associating an Alchemy MAv2 (`sma-b`) smart account. Reconnecting the same verified signer returns its existing account. The signing wallet retains its keys; UwiFin cannot recover a lost signing account. Mobile requires a wallet's built-in browser; WalletConnect and embedded signer onboarding are not included.
+Email/password sessions use an HttpOnly browser cookie via the Next.js BFF. Connecting an injected EIP-1193 Ethereum wallet requests a short-lived challenge bound to the application user, session, origin, and network. The backend verifies the EIP-191 signature before associating an Alchemy MAv2 (`sma-b`) smart account. Reconnecting the same verified signer returns its existing account. The signing wallet retains its keys; UwiFin cannot recover a lost signing account. Existing-wallet signing on mobile requires a wallet browser. Optional Alchemy email OTP onboarding works without an extension when the provider is configured; WalletConnect is not included.
 
 The receiving address is the smart account address, not the signing account. Balances read only the configured USDC contract. Base Sepolia (84532) and Base (8453) are supported configurations; only one is enabled per deployment. No sample balances, addresses, recipients, exchange rates, or timed confirmations are used.
 
 The backend stores an idempotent transfer intent, constructs only USDC `transfer(address,uint256)` calldata, and requires approved sponsorship. The browser uses the official Alchemy SDK to sign the returned signature request through the user's wallet. The exact prepared envelope is preserved when submitting. Signed bytes are persisted before sending to Alchemy; an ambiguous retry resends the same operation, never a fresh nonce. One active operation per wallet is enforced by MariaDB. The worker verifies chain, canonical receipt block, confirmation depth, and the expected token Transfer event before confirmation. A receipt failure marks the transfer failed. Pending operations must be reconciled before another operation uses the wallet.
 
-History currently shows the latest 100 UwiFin-originated transfers, with local filtering and CSV export. Incoming deposits affect balances but are not indexed as history entries. The receive screen explicitly identifies testnet. No USDC/USD peg or PHP exchange-rate quote is assumed.
+History supports server pagination and filters, with CSV export of the current page. Incoming deposits are fetched through Alchemy and recorded after canonical receipt verification. The receive screen explicitly identifies testnet. No USDC/USD peg or PHP exchange-rate quote is assumed.
 
 ## Local startup
 
@@ -44,3 +44,7 @@ Stripe Connect stablecoin payouts are fiat-platform-balance-to-crypto-wallet pay
 - With an **empty disposable** MariaDB database named `uwifin_test` and port 8080 free: `cd apps/web && node tests/provider-integration.mjs`. Override `TEST_DATABASE_URL` if needed. The test creates synthetic users/payments/wallets and runs a temporary API plus local provider transport fixtures, then stops them. Reset the test database before repeating. Never point this test at production or the development preview database.
 
 The integration fixture checks request/response contracts and our security boundaries. It does not replace Alchemy testnet or Stripe approved test-mode verification. The CodeRabbit emulate v0.0.1 catalog was inspected: it provides no Alchemy or Stripe Crypto Onramp service, so those operations cannot be certified using that emulator.
+
+## MVP completion update
+
+See [production operations](production.md) for admin bootstrap, CI, backups and provider activation. Email OTP wallet onboarding is optional through Alchemy's signer SDK and a separate restricted public key; existing-wallet connection remains available. Transaction history now pages on the server and includes verified deposits fetched through Alchemy's transfer API. Transaction details expose receipt gas metrics and the user-operation hash when the EntryPoint event is available. Settings supports password changes and revoking other sessions.

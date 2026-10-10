@@ -1,0 +1,25 @@
+name: MVP checks
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.34.5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.1
+          cache: pnpm
+      - uses: dtolnay/rust-toolchain@1.90.0
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --dir apps/web type-check && pnpm --dir apps/web lint && pnpm --dir apps/web test && pnpm --dir apps/web build
+      - run: cargo test --locked --manifest-path services/api/Cargo.toml && cargo build --locked --manifest-path services/api/Cargo.toml
+      - run: docker compose up -d --wait
+      - run: docker exec uwifin-mariadb mariadb -uroot -prootpassword -e "CREATE DATABASE uwifin_test; GRANT ALL ON uwifin_test.* TO 'uwifin'@'%';"
+      - run: cd apps/web && node tests/provider-integration.mjs
+      - if: always()
+        run: docker compose down -v

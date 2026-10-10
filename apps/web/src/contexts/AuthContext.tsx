@@ -1,5 +1,6 @@
 'use client';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { disconnectEmailWallet } from '@/lib/email-wallet';
 import { request, type User } from '@/lib/api';
 
 type AuthContextValue = {
@@ -19,14 +20,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => controller.abort();
   }, []);
   const login = async (email: string, password: string) => {
+    await disconnectEmailWallet();
     const result = await request<{ user: User }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
     setUser(result.user);
   };
   const register = async (email: string, password: string, name: string) => {
+    await disconnectEmailWallet();
     const result = await request<{ user: User }>('/auth/register', { method: 'POST', body: JSON.stringify({ email, password, name }) });
     setUser(result.user);
   };
-  const logout = async () => { await request('/auth/logout', { method: 'POST' }); setUser(null); };
+  const logout = async () => { await request('/auth/logout', { method: 'POST' }); setUser(null); await disconnectEmailWallet(); };
   const updateName = async (name: string) => { await request('/users/me', { method: 'PATCH', body: JSON.stringify({ name }) }); setUser(current => current ? { ...current, name } : null); };
   return <AuthContext.Provider value={{ user, loading, login, register, logout, updateName }}>{children}</AuthContext.Provider>;
 }

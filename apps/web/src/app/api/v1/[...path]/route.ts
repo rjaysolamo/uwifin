@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 const COOKIE = 'uwifin_session';
-const allowedPaths = /^(capabilities|auth\/(register|login|logout|me)|users\/me|wallets(?:\/[a-zA-Z0-9-]+(?:\/balances)?)?|transactions(?:\/[a-zA-Z0-9-]+(?:\/rpc)?)?|payments(?:\/[a-zA-Z0-9-]+)?)$/;
+const allowedPaths = /^(admin\/(users|transactions|payments|events|errors|assets|networks)(?:\/[a-zA-Z0-9-]+)?|capabilities|auth\/(register|login|logout|me|password|revoke-sessions)|users\/me|wallets(?:\/[a-zA-Z0-9-]+(?:\/balances)?)?|transactions(?:\/[a-zA-Z0-9-]+(?:\/rpc)?)?|payments(?:\/[a-zA-Z0-9-]+)?)$/;
 
 async function proxy(request: NextRequest, context: { params: Promise<{ path: string[] }> }) {
   const requestId = crypto.randomUUID();
-  const fail = (code: string, message: string, status: number) => NextResponse.json({ error: { code, message, request_id: requestId } }, { status });
+  const fail = (code: string, message: string, status: number, id = requestId) => NextResponse.json({ error: { code, message, request_id: id } }, { status, headers: { 'X-Request-Id': id, 'Cache-Control': 'no-store' } });
   const { path } = await context.params;
   const endpoint = path.join('/');
   if (!allowedPaths.test(endpoint)) return fail('NOT_FOUND', 'Endpoint not found.', 404);
@@ -33,8 +33,8 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
     const session = data.session_id;
     delete data.session_id;
     // Provider or infrastructure messages never cross the browser boundary.
-    if (response.status >= 500) return fail('SERVICE_UNAVAILABLE', 'This service is temporarily unavailable. Please try again.', response.status);
-    const result = NextResponse.json(data, { status: response.status, headers: { 'Cache-Control': 'no-store', 'X-Request-Id': requestId } });
+    if (response.status >= 500) return fail('SERVICE_UNAVAILABLE', 'This service is temporarily unavailable. Please try again.', response.status, response.headers.get('x-request-id') || requestId);
+    const result = NextResponse.json(data, { status: response.status, headers: { 'Cache-Control': 'no-store', 'X-Request-Id': response.headers.get('x-request-id') || requestId } });
     if (publicPath && response.ok && typeof session === 'string') {
       result.cookies.set(COOKIE, session, { httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 60 * 60 * 24 });
     }

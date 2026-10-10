@@ -1,4 +1,4 @@
-export type User = { id: string; email: string; name?: string; created_at?: string };
+export type User = { role: 'user' | 'admin'; id: string; email: string; name?: string; created_at?: string };
 export type Wallet = { id: string; address: string; network: string; wallet_type: string; signer_address: string | null };
 export type Capabilities = { network: string; chain_id: number; usdc_address: string; wallet_enabled: boolean; sponsorship_enabled: boolean; onramp_enabled: boolean; stripe_mode: string; offramp_enabled: boolean };
 export type Balance = { asset: string; balance: string; network: string };
