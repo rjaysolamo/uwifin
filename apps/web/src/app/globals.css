@@ -66,3 +66,5 @@ svg{flex-shrink:0;vertical-align:middle}
   .breadcrumb{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}
   .topbar-actions,.mobile-menu{flex-shrink:0}
 }
+
+.quick-send .family-illustration{position:static;display:block;width:160px;max-width:100%;margin:8px auto}

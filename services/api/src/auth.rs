@@ -94,6 +94,10 @@ pub async fn login(State(state): State<AppState>, Json(req): Json<Credentials>) 
     }).await.map_err(|_| ApiError::unavailable())?;
     let record = record.filter(|user| valid && user.status == "active").ok_or_else(|| ApiError::new("UNAUTHORIZED", "Invalid email or password."))?;
     let mut tx = state.pool.begin().await?;
+    // Serialize session issuance with password changes, which revoke sessions under this row lock.
+    let current: (String, String) = sqlx::query_as("SELECT password_hash, status FROM users WHERE id = ? FOR UPDATE")
+        .bind(&record.id).fetch_one(&mut *tx).await?;
+    if current.0 != record.password_hash || current.1 != "active" { return Err(ApiError::new("UNAUTHORIZED", "Invalid email or password.")); }
     let session_id = issue(&mut tx, &record.id).await?;
     sqlx::query("UPDATE users SET last_login_at = NOW() WHERE id = ?").bind(&record.id).execute(&mut *tx).await?;
     audit(&mut tx, &record.id, "account.login").await?;
