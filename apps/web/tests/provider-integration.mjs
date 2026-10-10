@@ -19,6 +19,8 @@ const signer = privateKeyToAccount(`0x${'0'.repeat(63)}1`);
 const wrongSigner = privateKeyToAccount(`0x${'0'.repeat(63)}2`);
 let submitted = 0, accountRequests = 0, stripeCreates = 0, settles = false, receiptFailed = false;
 let providerSession;
+let operationSuccess = true, operationNonce = 0n, omitOperation = false, wrongEntryPoint = false;
+let canonicalHash = blockHash, tip = '0x66', includeTransfer = true;
 const prepared = { type: 'user-operation-v070', chainId: '0x2105', data: { sender: address, nonce: '0x0', callData: '0x1234', paymaster: recipient }, signatureRequest: { type: 'personal_sign', data: { raw: `0x${'ab'.repeat(32)}` } }, feePayment: { sponsored: true } };
 let depositsReady = false;
 const depositHash = '0x' + 'd'.repeat(64);
@@ -51,9 +53,9 @@ const fixture = createServer(async (req, res) => {
         case 'wallet_getCallsStatus': result = settles ? { status: 200, receipts: [{ transactionHash: txHash }] } : { status: 100 }; break;
         case 'eth_getTransactionReceipt':
           if (rpc.params[0] === depositHash) { result = {transactionHash:depositHash,status:'0x1',blockNumber:'0x63',blockHash,logs:[{address:token,topics:['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',`0x${recipient.slice(2).padStart(64,'0')}`,`0x${address.slice(2).padStart(64,'0')}`],data:'0xf4240'}]}; break; }
-          result = { transactionHash: txHash, status: receiptFailed ? '0x0' : '0x1', blockNumber: '0x64', blockHash, gasUsed: '0x100', effectiveGasPrice: '0x1', logs: [{ address: token, topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',`0x${address.slice(2).padStart(64,'0')}`,`0x${recipient.slice(2).padStart(64,'0')}`], data: `0x${(1000001n).toString(16).padStart(64,'0')}` },{address:'0x0000000071727de22e5e9d8baf0edac6f37da032',topics:['0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f',operationHash,`0x${address.slice(2).padStart(64,'0')}`],data:'0x'}] }; break;
-        case 'eth_blockNumber': result = '0x66'; break;
-        case 'eth_getBlockByNumber': result = { hash: blockHash, timestamp: '0x68000000' }; break;
+          result = { transactionHash: txHash, status: receiptFailed ? '0x0' : '0x1', blockNumber: '0x64', blockHash, gasUsed: '0x100', effectiveGasPrice: '0x1', logs: [{address:'0x0000000071727de22e5e9d8baf0edac6f37da032',topics:['0xbb47ee3e183a558b1a2ff0874b079f3fc5478b7454eacf2bfc5af2ff5878f972'],data:'0x'}, ...(includeTransfer ? [{ address: token, topics: ['0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef',`0x${address.slice(2).padStart(64,'0')}`,`0x${recipient.slice(2).padStart(64,'0')}`], data: `0x${(1000001n).toString(16).padStart(64,'0')}` }] : []), ...(omitOperation ? [] : [{address:wrongEntryPoint ? recipient : '0x0000000071727de22e5e9d8baf0edac6f37da032',topics:['0x49628fd1471006c1482da88028e9ce4dbb080b815c9b0344d39e5a8e6ec1419f',operationHash,`0x${address.slice(2).padStart(64,'0')}`,`0x${recipient.slice(2).padStart(64,'0')}`],data:'0x'+[operationNonce,operationSuccess ? 1n : 0n,256n,256n].map(value=>value.toString(16).padStart(64,'0')).join('')}]) ] }; break;
+        case 'eth_blockNumber': result = tip; break;
+        case 'eth_getBlockByNumber': result = { hash: canonicalHash, timestamp: '0x68000000' }; break;
         default: throw new Error(`Unexpected method: ${rpc.method}`);
       }
       result = { jsonrpc: '2.0', id: rpc.id, result };
@@ -120,6 +122,17 @@ try {
   assert.equal((await request(`/transactions/${id}`,{token:alice})).body.status,'pending');
   assert.equal((await rpc('wallet_getCallsStatus')).body.status,100);
   settles = true;
+  omitOperation = true;
+  assert.equal((await rpc('wallet_getCallsStatus')).body.status,100,'outer success without our operation stays pending');
+  omitOperation = false; operationNonce = 1n;
+  assert.equal((await rpc('wallet_getCallsStatus')).body.status,100,'another nonce cannot settle this intent');
+  operationNonce = 0n; wrongEntryPoint = true;
+  assert.equal((await rpc('wallet_getCallsStatus')).body.status,100,'another entrypoint cannot settle this intent');
+  wrongEntryPoint = false; tip = '0x64';
+  assert.equal((await rpc('wallet_getCallsStatus')).body.status,100,'wait for confirmation depth');
+  tip = '0x66'; canonicalHash = '0x'+'f'.repeat(64);
+  assert.equal((await rpc('wallet_getCallsStatus')).body.status,100,'noncanonical receipt stays pending');
+  canonicalHash = blockHash;
   assert.equal((await rpc('wallet_getCallsStatus')).body.status,200);
   const confirmed = (await request(`/transactions/${id}`,{token:alice})).body;
   assert.equal(confirmed.status,'confirmed'); assert.equal(confirmed.tx_hash,txHash);
@@ -146,11 +159,25 @@ try {
   const failingRpc = (method,params=[]) => request(`/transactions/${failing.body.id}/rpc`,{method:'POST',token:alice,body:{method,params}});
   assert.equal((await failingRpc('wallet_prepareCalls')).status,200);
   assert.equal((await failingRpc('wallet_sendPreparedCalls',[signed])).status,200);
-  receiptFailed = true;
+  operationSuccess = false; // A bundled receipt succeeds even when our operation reverts.
   assert.equal((await failingRpc('wallet_getCallsStatus')).body.status,500);
   const failed = (await request(`/transactions/${failing.body.id}`,{token:alice})).body;
   assert.equal(failed.status,'failed'); assert.equal(failed.error_code,'TRANSACTION_FAILED');
+  operationSuccess = true;
+  const outerFailure = await request('/transactions',{method:'POST',token:alice,body:intentBody,key:randomUUID()});
+  const outerRpc = (method,params=[]) => request(`/transactions/${outerFailure.body.id}/rpc`,{method:'POST',token:alice,body:{method,params}});
+  assert.equal((await outerRpc('wallet_prepareCalls')).status,200);
+  assert.equal((await outerRpc('wallet_sendPreparedCalls',[signed])).status,200);
+  receiptFailed = true;
+  assert.equal((await outerRpc('wallet_getCallsStatus')).body.status,500);
   receiptFailed = false;
+  const missingTransfer = await request('/transactions',{method:'POST',token:alice,body:intentBody,key:randomUUID()});
+  const missingRpc = (method,params=[]) => request(`/transactions/${missingTransfer.body.id}/rpc`,{method:'POST',token:alice,body:{method,params}});
+  assert.equal((await missingRpc('wallet_prepareCalls')).status,200);
+  assert.equal((await missingRpc('wallet_sendPreparedCalls',[signed])).status,200);
+  includeTransfer = false;
+  assert.equal((await missingRpc('wallet_getCallsStatus')).body.status,500,'successful operation without intended transfer fails');
+  includeTransfer = true;
   depositsReady = true;
   let deposits = [];
   for (let attempt=0; attempt<25; attempt++) {
@@ -162,6 +189,28 @@ try {
   assert.equal(deposits[0].amount_atomic,'1000000'); assert.equal(deposits[0].tx_hash,depositHash); assert.equal(deposits[0].address,recipient);
   assert.equal((await request('/transactions?kind=received',{token:bob})).body.transactions.length,0);
   assert.equal(confirmed.gas_used,'256'); assert.equal(confirmed.gas_price,'1');
+  // Hold the user row while a login verifies the old password, then rotate the stored hash.
+  const raceSession = await register();
+  const raceUser = (await request('/auth/me',{token:raceSession})).body;
+  const rotation = spawn('docker',['exec','-i','uwifin-mariadb','mariadb','--unbuffered','-N','-uroot','-prootpassword','uwifin_test'],{stdio:['pipe','pipe','pipe']});
+  try {
+    const locked = once(rotation.stdout,'data');
+    rotation.stdin.write(`START TRANSACTION; SELECT id FROM users WHERE id = '${raceUser.id}' FOR UPDATE;\n`);
+    await locked;
+    const loginDuringRotation = request('/auth/login',{method:'POST',body:{email:raceUser.email,password:'synthetic-password-123'}});
+    // Wait for issuance to reach its database lock; password hashing runs off-thread.
+    let waiting = false;
+    for (let attempt=0;attempt<100;attempt++) {
+      const count = execFileSync('docker',['exec','uwifin-mariadb','mariadb','-N','-uroot','-prootpassword','-e','SELECT COUNT(*) FROM information_schema.INNODB_LOCK_WAITS'],{encoding:'utf8'}).trim();
+      if (Number(count)>0) { waiting=true; break; }
+      await new Promise(resolve=>setTimeout(resolve,50));
+    }
+    assert.ok(waiting,'login must serialize session issuance with the user row');
+    const rotated = once(rotation,'exit');
+    rotation.stdin.end(`UPDATE users target JOIN users replacement ON replacement.id = '${aliceUser.id}' SET target.password_hash = replacement.password_hash WHERE target.id = '${raceUser.id}'; COMMIT;\n`);
+    assert.equal((await rotated)[0],0);
+    assert.equal((await loginDuringRotation).status,401,'old password must not issue a session after rotation');
+  } finally { rotation.stdin.end(); if(rotation.exitCode===null) rotation.kill(); }
   assert.equal((await request('/auth/logout',{method:'POST',token:alice})).status,200);
   assert.equal((await request('/wallets',{token:alice})).status,401);
   console.log('PASS: MariaDB migrations, authentication/revocation, wallet ownership/replay/reconnect, cross-user isolation, exact balances, concurrent idempotency, SDK signing, tampered submissions, pending/confirmed receipt verification, Stripe creation, signature/dedup/amount reconciliation. Synthetic provider fixtures only.');
