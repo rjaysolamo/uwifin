@@ -6,9 +6,16 @@ import { useAuth } from '@/contexts/AuthContext';
 import type { Transfer } from '@/lib/transfers';
 import { decimalAmount, parseAmount, validateAddress } from '@/lib/money';
 import { StatusBadge } from './UI';
-export function SendPage({ initialRecipient = '', initialAmount = '' }: { initialRecipient?: string; initialAmount?: string }) {
+export function SendPage({
+  initialRecipient = '',
+  initialAmount = '',
+}: {
+  initialRecipient?: string;
+  initialAmount?: string;
+}) {
   const { user } = useAuth();
-  const { wallet, balance, balanceKnown, capabilities, networkLabel, send, transfers } = useFinance();
+  const { wallet, balance, balanceKnown, capabilities, networkLabel, send, transfers } =
+    useFinance();
   const [recipient, setRecipient] = useState(initialRecipient === 'new' ? '' : initialRecipient);
   const [amount, setAmount] = useState(initialAmount);
   const [review, setReview] = useState(false);
@@ -18,10 +25,13 @@ export function SendPage({ initialRecipient = '', initialAmount = '' }: { initia
   const key = useRef('');
   const reviewedWallet = useRef('');
   const reviewTransfer = (event: FormEvent) => {
-    event.preventDefault(); setError('');
+    event.preventDefault();
+    setError('');
     try {
-      if (!wallet || !balanceKnown) throw new Error('Connect a wallet and refresh its balance first.');
-      if (!validateAddress(recipient) || recipient.toLowerCase() === wallet.address.toLowerCase()) throw new Error('Enter a valid recipient other than your own wallet.');
+      if (!wallet || !balanceKnown)
+        throw new Error('Connect a wallet and refresh its balance first.');
+      if (!validateAddress(recipient) || recipient.toLowerCase() === wallet.address.toLowerCase())
+        throw new Error('Enter a valid recipient other than your own wallet.');
       const atomic = parseAmount(amount);
       if (atomic > BigInt(balance)) throw new Error('Insufficient USDC balance.');
       const storageKey = `uwifin-intent:${user?.id}:${wallet.id}:${recipient.toLowerCase()}:${atomic}`;
@@ -29,20 +39,163 @@ export function SendPage({ initialRecipient = '', initialAmount = '' }: { initia
       sessionStorage.setItem(storageKey, key.current);
       reviewedWallet.current = wallet.id;
       setReview(true);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Check transfer details.'); }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Check transfer details.');
+    }
   };
   const confirm = async () => {
     if (busy) return;
-    setBusy(true); setError('');
+    setBusy(true);
+    setError('');
     try {
-      if (reviewedWallet.current !== wallet?.id) throw new Error('The selected wallet changed. Review the transfer again.');
+      if (reviewedWallet.current !== wallet?.id)
+        throw new Error('The selected wallet changed. Review the transfer again.');
       setResult(await send(recipient, amount, key.current));
-    } catch (err) { setError(`${err instanceof Error ? err.message : 'Submission is unavailable.'} Check your history before starting another transfer. Retrying here reuses this transfer.`); }
-    finally { setBusy(false); }
+    } catch (err) {
+      setError(
+        `${err instanceof Error ? err.message : 'Submission is unavailable.'} Check your history before starting another transfer. Retrying here reuses this transfer.`,
+      );
+    } finally {
+      setBusy(false);
+    }
   };
-  const current = transfers.find(item => item.id === result?.id) || result;
-  return <><section className="page-heading"><div><h1>Send USDC.</h1><p>Review the exact amount and recipient before signing.</p></div></section><div className="flow-layout"><section className="card flow-card">
-    {!wallet && <p className="info-note"><Link href="/wallet">Connect your wallet</Link> before sending.</p>}
-    {current ? <div className="success-panel"><h2>{current.status === 'confirmed' ? 'Transfer confirmed' : current.status === 'failed' ? 'Transfer failed' : 'Transfer in progress'}</h2><StatusBadge status={current.status}/><p>{decimalAmount(current.amount_atomic)} USDC</p><code className="receive-address">{current.address}</code><p>Confirmation is checked against the blockchain. A submitted transfer can take time to settle.</p><Link href="/transactions" className="button primary">View transaction history</Link></div> : review ? <div className="review-transfer"><h2>Review your transfer</h2><div className="review-amount">{decimalAmount(parseAmount(amount))}<span>USDC</span></div><dl className="detail-list"><div><dt>Network</dt><dd>{networkLabel}</dd></div><div className="detail-address"><dt>From</dt><dd><code>{wallet?.address}</code></dd></div><div className="detail-address"><dt>Recipient</dt><dd><code>{recipient}</code></dd></div><div><dt>Network fee</dt><dd>Sponsored if eligible</dd></div></dl><p className="info-note">The transfer will only proceed if gas sponsorship is approved. Your wallet will ask you to sign. Blockchain transfers cannot be reversed.</p>{error && <p role="alert" className="field-error">{error}</p>}<button className="button primary full-width" disabled={busy} onClick={() => void confirm()}>{busy ? 'Approve in your wallet…' : 'Sign and send'}</button><button className="button text-button full-width" disabled={busy} onClick={() => setReview(false)}>Edit details</button></div> : <form className="stacked-form" onSubmit={reviewTransfer}><h2>Transfer details</h2><label htmlFor="recipient">Recipient wallet address</label><input id="recipient" className="input" value={recipient} onChange={event => setRecipient(event.target.value.trim())} placeholder="0x…" required/><label htmlFor="amount">Amount in USDC</label><input id="amount" className="input" inputMode="decimal" value={amount} onChange={event => setAmount(event.target.value)} placeholder="0.00" required/><p>Available: {balanceKnown ? `${decimalAmount(balance)} USDC` : 'Unavailable'}</p><p>Network: {networkLabel}</p>{error && <p role="alert" className="field-error">{error}</p>}<button className="button primary" disabled={!wallet || !balanceKnown || !capabilities?.sponsorship_enabled}>Review transfer</button>{!capabilities?.sponsorship_enabled && <p>Sponsored transfers are currently unavailable.</p>}</form>}
-  </section><aside className="flow-side"><h2>Before you send</h2><p>Verify the full recipient address and network with the person receiving your funds.</p><p>Use USDC on {networkLabel}. Testnet tokens have no monetary value.</p><p>UwiFin never asks for your seed phrase.</p></aside></div></>;
+  const current = transfers.find((item) => item.id === result?.id) || result;
+  return (
+    <>
+      <section className="page-heading">
+        <div>
+          <h1>Send USDC.</h1>
+          <p>Review the exact amount and recipient before signing.</p>
+        </div>
+      </section>
+      <div className="flow-layout">
+        <section className="card flow-card">
+          {!wallet && (
+            <p className="info-note">
+              <Link href="/wallet">Connect your wallet</Link> before sending.
+            </p>
+          )}
+          {current ? (
+            <div className="success-panel">
+              <h2>
+                {current.status === 'confirmed'
+                  ? 'Transfer confirmed'
+                  : current.status === 'failed'
+                    ? 'Transfer failed'
+                    : 'Transfer in progress'}
+              </h2>
+              <StatusBadge status={current.status} />
+              <p>{decimalAmount(current.amount_atomic)} USDC</p>
+              <code className="receive-address">{current.address}</code>
+              <p>
+                Confirmation is checked against the blockchain. A submitted transfer can take time
+                to settle.
+              </p>
+              <Link href="/transactions" className="button primary">
+                View transaction history
+              </Link>
+            </div>
+          ) : review ? (
+            <div className="review-transfer">
+              <h2>Review your transfer</h2>
+              <div className="review-amount">
+                {decimalAmount(parseAmount(amount))}
+                <span>USDC</span>
+              </div>
+              <dl className="detail-list">
+                <div>
+                  <dt>Network</dt>
+                  <dd>{networkLabel}</dd>
+                </div>
+                <div className="detail-address">
+                  <dt>From</dt>
+                  <dd>
+                    <code>{wallet?.address}</code>
+                  </dd>
+                </div>
+                <div className="detail-address">
+                  <dt>Recipient</dt>
+                  <dd>
+                    <code>{recipient}</code>
+                  </dd>
+                </div>
+                <div>
+                  <dt>Network fee</dt>
+                  <dd>Sponsored if eligible</dd>
+                </div>
+              </dl>
+              <p className="info-note">
+                The transfer will only proceed if gas sponsorship is approved. Your wallet will ask
+                you to sign. Blockchain transfers cannot be reversed.
+              </p>
+              {error && (
+                <p role="alert" className="field-error">
+                  {error}
+                </p>
+              )}
+              <button
+                className="button primary full-width"
+                disabled={busy}
+                onClick={() => void confirm()}
+              >
+                {busy ? 'Approve in your wallet…' : 'Sign and send'}
+              </button>
+              <button
+                className="button text-button full-width"
+                disabled={busy}
+                onClick={() => setReview(false)}
+              >
+                Edit details
+              </button>
+            </div>
+          ) : (
+            <form className="stacked-form" onSubmit={reviewTransfer}>
+              <h2>Transfer details</h2>
+              <label htmlFor="recipient">Recipient wallet address</label>
+              <input
+                id="recipient"
+                className="input"
+                value={recipient}
+                onChange={(event) => setRecipient(event.target.value.trim())}
+                placeholder="0x…"
+                required
+              />
+              <label htmlFor="amount">Amount in USDC</label>
+              <input
+                id="amount"
+                className="input"
+                inputMode="decimal"
+                value={amount}
+                onChange={(event) => setAmount(event.target.value)}
+                placeholder="0.00"
+                required
+              />
+              <p>Available: {balanceKnown ? `${decimalAmount(balance)} USDC` : 'Unavailable'}</p>
+              <p>Network: {networkLabel}</p>
+              {error && (
+                <p role="alert" className="field-error">
+                  {error}
+                </p>
+              )}
+              <button
+                className="button primary"
+                disabled={!wallet || !balanceKnown || !capabilities?.sponsorship_enabled}
+              >
+                Review transfer
+              </button>
+              {!capabilities?.sponsorship_enabled && (
+                <p>Sponsored transfers are currently unavailable.</p>
+              )}
+            </form>
+          )}
+        </section>
+        <aside className="flow-side">
+          <h2>Before you send</h2>
+          <p>Verify the full recipient address and network with the person receiving your funds.</p>
+          <p>Use USDC on {networkLabel}. Testnet tokens have no monetary value.</p>
+          <p>UwiFin never asks for your seed phrase.</p>
+        </aside>
+      </div>
+    </>
+  );
 }

@@ -1,0 +1,23 @@
+# Dependencies, generated files, and build output (including nested workspaces).
+**/node_modules/
+**/.next/
+**/out/
+**/build/
+**/dist/
+**/target/
+**/coverage/
+**/.vercel/
+**/next-env.d.ts
+**/*.tsbuildinfo
+**/vendor/
+**/generated/
+
+# Machine-managed lockfiles and third-party assets.
+pnpm-lock.yaml
+**/Cargo.lock
+apps/web/public/fonts/
+**/AGENTS.md
+
+# Environment files and versioned migrations must retain their original contents.
+**/.env*
+services/api/migrations/

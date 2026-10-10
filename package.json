@@ -7,6 +7,12 @@
     "packages/*"
   ],
   "scripts": {
+    "format": "pnpm format:web && pnpm format:api",
+    "format:check": "pnpm format:web:check && pnpm format:api:check",
+    "format:web": "prettier --write . --ignore-path .gitignore --ignore-path .prettierignore",
+    "format:web:check": "prettier --check . --ignore-path .gitignore --ignore-path .prettierignore",
+    "format:api": "cargo fmt --manifest-path services/api/Cargo.toml",
+    "format:api:check": "cargo fmt --manifest-path services/api/Cargo.toml -- --check",
     "dev:web": "pnpm --dir apps/web dev",
     "dev:api": "cargo run --manifest-path services/api/Cargo.toml",
     "lint:web": "pnpm --dir apps/web lint",
@@ -22,5 +28,8 @@
       "jayson": "5.0.0",
       "js-cookie": "3.0.7"
     }
+  },
+  "devDependencies": {
+    "prettier": "3.9.10"
   }
 }

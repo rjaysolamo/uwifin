@@ -1,17 +1,40 @@
-use axum::{http::StatusCode, response::{IntoResponse, Response}, Json};
+use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Json,
+};
 use serde::Serialize;
 #[derive(Debug, Serialize)]
-pub struct ApiError { pub error: ErrorDetail }
+pub struct ApiError {
+    pub error: ErrorDetail,
+}
 #[derive(Debug, Serialize)]
-pub struct ErrorDetail { pub code: String, pub message: String, pub request_id: String }
+pub struct ErrorDetail {
+    pub code: String,
+    pub message: String,
+    pub request_id: String,
+}
 impl ApiError {
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self { error: ErrorDetail { code: code.into(), message: message.into(), request_id: crate::security::request_id() } }
+        Self {
+            error: ErrorDetail {
+                code: code.into(),
+                message: message.into(),
+                request_id: crate::security::request_id(),
+            },
+        }
     }
-    pub fn unavailable() -> Self { Self::new("SERVICE_UNAVAILABLE", "This service is temporarily unavailable. Please try again.") }
+    pub fn unavailable() -> Self {
+        Self::new(
+            "SERVICE_UNAVAILABLE",
+            "This service is temporarily unavailable. Please try again.",
+        )
+    }
 }
 impl From<sqlx::Error> for ApiError {
-    fn from(_: sqlx::Error) -> Self { Self::new("INTERNAL_ERROR", "Unable to complete this request.") }
+    fn from(_: sqlx::Error) -> Self {
+        Self::new("INTERNAL_ERROR", "Unable to complete this request.")
+    }
 }
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {

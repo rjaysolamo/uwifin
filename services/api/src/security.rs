@@ -1,28 +1,58 @@
-use std::{collections::HashMap, sync::Mutex, time::{Duration, Instant}};
-use axum::{extract::{ConnectInfo, Request, State}, middleware::Next, response::{Response, IntoResponse}};
-use sha2::{Digest, Sha256};
 use crate::{error::ApiError, state::AppState};
+use axum::{
+    extract::{ConnectInfo, Request, State},
+    middleware::Next,
+    response::{IntoResponse, Response},
+};
+use sha2::{Digest, Sha256};
+use std::{
+    collections::HashMap,
+    sync::Mutex,
+    time::{Duration, Instant},
+};
 
 tokio::task_local! { static REQUEST_ID: String; }
-pub fn request_id() -> String { REQUEST_ID.try_with(Clone::clone).unwrap_or_else(|_| uuid::Uuid::new_v4().to_string()) }
+pub fn request_id() -> String {
+    REQUEST_ID
+        .try_with(Clone::clone)
+        .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string())
+}
 
 #[derive(Default)]
-pub struct RateLimits { buckets: Mutex<HashMap<String, (Instant, u32)>> }
+pub struct RateLimits {
+    buckets: Mutex<HashMap<String, (Instant, u32)>>,
+}
 impl RateLimits {
     pub fn check(&self, key: String, maximum: u32) -> Result<(), ApiError> {
         let now = Instant::now();
         let mut buckets = self.buckets.lock().map_err(|_| ApiError::unavailable())?;
         buckets.retain(|_, (start, _)| now.duration_since(*start) < Duration::from_secs(60));
-        if buckets.len() >= 10_000 && !buckets.contains_key(&key) { return Err(ApiError::new("RATE_LIMITED", "Please wait a minute before trying again.")); }
+        if buckets.len() >= 10_000 && !buckets.contains_key(&key) {
+            return Err(ApiError::new(
+                "RATE_LIMITED",
+                "Please wait a minute before trying again.",
+            ));
+        }
         let entry = buckets.entry(key).or_insert((now, 0));
-        if entry.1 >= maximum { return Err(ApiError::new("RATE_LIMITED", "Please wait a minute before trying again.")); }
+        if entry.1 >= maximum {
+            return Err(ApiError::new(
+                "RATE_LIMITED",
+                "Please wait a minute before trying again.",
+            ));
+        }
         entry.1 += 1;
         Ok(())
     }
 }
-pub fn hash(value: &str) -> String { hex::encode(Sha256::digest(value.as_bytes())) }
+pub fn hash(value: &str) -> String {
+    hex::encode(Sha256::digest(value.as_bytes()))
+}
 
-pub async fn request_controls(State(state): State<AppState>, request: Request, next: Next) -> Response {
+pub async fn request_controls(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
     let request_id = uuid::Uuid::new_v4().to_string();
     REQUEST_ID.scope(request_id.clone(), async move {
         let path = request.uri().path().to_string();
@@ -43,7 +73,11 @@ pub async fn request_controls(State(state): State<AppState>, request: Request, n
     }).await
 }
 
-pub async fn audit(connection: &mut sqlx::MySqlConnection, user: &str, event: &str) -> Result<(), sqlx::Error> {
+pub async fn audit(
+    connection: &mut sqlx::MySqlConnection,
+    user: &str,
+    event: &str,
+) -> Result<(), sqlx::Error> {
     sqlx::query("INSERT INTO audit_events (id, user_id, event_type, request_id, metadata, created_at) VALUES (?, ?, ?, ?, '{}', NOW())")
         .bind(uuid::Uuid::new_v4().to_string()).bind(user).bind(event).bind(request_id()).execute(connection).await?;
     Ok(())
