@@ -27,7 +27,7 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 dotenvy = "=0.15.7"
 anyhow = "1.0"
 solana-pubkey = { version = "2.4.0", features = ["curve25519"] }
-ed25519-dalek = "2.2.0"
+ed25519-dalek = "3.0.0"
 bs58 = "0.5.1"
 solana-message = { version = "2.4.0", features = ["bincode"] }
 solana-instruction = "2.3.3"
